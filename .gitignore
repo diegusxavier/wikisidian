@@ -1,0 +1,14 @@
+# Cache do Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Banco de dados vetorial local
+chroma_db/
+vector_store/
+
+# Cofre do Obsidian (Proteção dos seus dados)
+vault_data/
+*.md
+!README.md
