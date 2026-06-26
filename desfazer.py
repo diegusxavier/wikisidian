@@ -3,7 +3,7 @@ from src.utils.file_handler import get_all_md_files
 
 def main():
     print("="*60)
-    print("🚑 Iniciando Protocolo de Limpeza (Desfazendo links da IA)")
+    print("Iniciando Protocolo de Limpeza (Desfazendo links da IA)")
     print("="*60)
     
     arquivos_md = get_all_md_files(VAULT_PATH)
@@ -37,13 +37,13 @@ def main():
                 # Sobrescreve o arquivo apenas com o seu texto original
                 arquivo.write_text(texto_restaurado, encoding='utf-8')
                 notas_limpas += 1
-                print(f"🧹 Limpo: {arquivo.name}")
+                print(f"Limpo: {arquivo.name}")
                 
         except Exception as e:
-            print(f"❌ Erro ao limpar '{arquivo.name}': {e}")
+            print(f"Erro ao limpar '{arquivo.name}': {e}")
             
     print("\n" + "="*60)
-    print(f"✅ Ufa! {notas_limpas} arquivos foram restaurados com sucesso.")
+    print(f"Ufa! {notas_limpas} arquivos foram restaurados com sucesso.")
     print("="*60)
 
 if __name__ == '__main__':
