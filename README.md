@@ -1,5 +1,5 @@
 # Wikisidian
-
+```
 wikisidian/
 │
 ├── src/                    # Código fonte do projeto
@@ -19,3 +19,4 @@ wikisidian/
 ├── requirements.txt        # Onde listaremos as bibliotecas (ex: chromadb, etc)
 ├── README.md               # Apresentação e documentação do seu projeto
 └── main.py                 # O maestro do sistema, que vai chamar os scripts na ordem certa
+```
