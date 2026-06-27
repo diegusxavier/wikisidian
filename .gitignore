@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.env
 
 # Banco de dados vetorial local
 chroma_db/
