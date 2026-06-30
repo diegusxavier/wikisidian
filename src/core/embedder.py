@@ -36,7 +36,7 @@ class VectorStore:
         # configurado na inicialização, passa texto por texto dentro da IA, 
         # transforma tudo em matrizes de 384 dimensões e armazena na memória do banco.
         # Ele associa cada vetor ao seu 'id' (nome do arquivo) e aos seus metadados (caminho).
-        self.collection.add(
+        self.collection.upsert(
             documents=contents,
             ids=ids,
             metadatas=[{"path": str(f)} for f in files]

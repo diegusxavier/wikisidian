@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 from src.core.embedder import VectorStore
+from src.config import MARCADOR_IA
 
 class ObsidianLinker:
     def __init__(self, vector_store: VectorStore):
@@ -8,7 +9,7 @@ class ObsidianLinker:
         self.vs = vector_store
         
         # Um marcador limpo e seguro para separar o seu texto da área da IA
-        self.marcador = "### Notas Relacionadas (IA)"
+        self.marcador = MARCADOR_IA
         
         # DEFINIMOS O NOSSO NÍVEL DE RIGOR AQUI (Limiar de Distância)
         # O ChromaDB devolve a distância entre as notas (0.0 é idêntico, 1.0+ é muito diferente).

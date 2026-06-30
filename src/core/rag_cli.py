@@ -3,6 +3,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from litellm import completion
 from src.core.embedder import VectorStore
+from src.config import MARCADOR_IA
 
 # Carrega as variaveis do arquivo .env para a memoria
 load_dotenv()
@@ -62,7 +63,7 @@ class WikisidianChat:
             
             if texto:
                 # Removemos a area de links gerada pelo programa para manter o contexto puro
-                texto_limpo = texto.split("### Notas Relacionadas (IA)")[0].strip()
+                texto_limpo = texto.split(MARCADOR_IA)[0].strip()
                 
                 contexto_str += f"\n--- INICIO DA NOTA: {nome_nota} ---\n"
                 contexto_str += f"{texto_limpo}\n"

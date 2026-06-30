@@ -11,6 +11,9 @@ dotenv.load_dotenv(dotenv_path=ENV_PATH)
 
 # 3. Puxa o caminho do .env. Se não existir, deixa como None (vazio)
 vault_str = os.environ.get("PERSONAL_VAULT_PATH")
+if not vault_str:
+    raise ValueError("ERRO CRÍTICO: PERSONAL_VAULT_PATH não encontrado no arquivo .env!")
+VAULT_PATH = Path(vault_str)
 
 # 4. Transforma em objeto Path.
 # O pathlib resolve as barras invertidas (\) do Windows automaticamente,
@@ -22,3 +25,5 @@ IGNORED_FOLDERS = [
     "99 - TEMP",    
     ".obsidian"    
 ]
+
+MARCADOR_IA = "### Notas Relacionadas (IA)"
