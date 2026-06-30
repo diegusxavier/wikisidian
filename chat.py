@@ -9,9 +9,11 @@ def main():
     print("="*60)
     
     arquivos_md = get_all_md_files(VAULT_PATH)
-    conteudos = [read_file_content(f) for f in arquivos_md]
     
     vetor_db = VectorStore()
+    vetor_db.sync_db(arquivos_md) # sincroniza o banco com os arquivos atuais do cofre
+    
+    conteudos = [read_file_content(f) for f in arquivos_md]
     vetor_db.add_notes(arquivos_md, conteudos)
     
     chat = WikisidianChat(vetor_db, VAULT_PATH)

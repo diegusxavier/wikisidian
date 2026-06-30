@@ -18,9 +18,11 @@ def main():
 
     # 2. Lê os conteúdos e alimenta a Inteligência Artificial
     print("\nCarregando notas na Inteligência Artificial...")
-    conteudos = [read_file_content(f) for f in arquivos_md]
     
     vetor_db = VectorStore()
+    vetor_db.sync_db(arquivos_md) # sincroniza o banco com os arquivos atuais do cofre
+
+    conteudos = [read_file_content(f) for f in arquivos_md]
     vetor_db.add_notes(arquivos_md, conteudos)
     
     # 3. Inicializa o Linker

@@ -54,3 +54,23 @@ class VectorStore:
             n_results=top_k
         )
         return results
+    
+    def sync_db(self, current_files: list[Path]):
+        """
+        Compara os arquivos atuais do cofre com os IDs no banco vetorial.
+        Remove do banco qualquer arquivo que não exista mais no cofre.
+        """
+        # Pega todos os IDs que já estão no banco
+        existing_ids = self.collection.get()['ids']
+        
+        # Cria uma lista com os nomes dos arquivos atuais
+        current_names = [f.name for f in current_files]
+        
+        # Identifica o que deve ser deletado
+        to_delete = [id for id in existing_ids if id not in current_names]
+        
+        if to_delete:
+            print(f"Limpando {len(to_delete)} notas deletadas do banco vetorial...")
+            self.collection.delete(ids=to_delete)
+        else:
+            print("Banco vetorial sincronizado com o cofre.")
