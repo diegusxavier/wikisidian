@@ -71,13 +71,16 @@ class WikisidianChat:
                 notas_utilizadas.append(nome_nota)
 
         # 3. O Prompt Estruturado
-        prompt_sistema = """Voce e o Wikisidian, um assistente pessoal especializado em gestao de conhecimento.
-Seu objetivo e responder a pergunta do usuario baseando-se EXCLUSIVAMENTE no contexto fornecido abaixo, que sao anotacoes do proprio usuario.
-Se a resposta nao estiver no contexto, diga educadamente que nao sabe com base nas anotacoes atuais.
-Ao final da sua resposta, adicione uma secao chamada 'Fontes Utilizadas:' e liste os nomes das notas exatas que foram enviadas no contexto."""
+        prompt_sistema = """Voce e o Wikisidian, um assistente pessoal.
+        REGRAS OBRIGATORIAS:
+        1. Responda APENAS com base no CONTEXTO fornecido.
+        2. Se a informacao nao estiver presente nas notas fornecidas, responda EXATAMENTE: "Nao encontrei informacoes sobre isso nas suas anotacoes."
+        3. Nao utilize nenhum conhecimento externo, mesmo que voce saiba a resposta.
+        4. Se o contexto for irrelevante para a pergunta, diga que nao possui informacoes sobre o tema.
+        Ao final da sua resposta, adicione uma secao chamada 'Fontes Utilizadas:' e liste as notas."""
         
         prompt_usuario = f"""CONTEXTO (Notas do usuario):
-{contexto_str}
+        {contexto_str}
 
 PERGUNTA DO USUARIO: {pergunta_usuario}
 """
