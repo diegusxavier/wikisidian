@@ -13,3 +13,6 @@ vector_store/
 vault_data/
 *.md
 !README.md
+
+# Arquivos de configuração do sistema
+settings.json
