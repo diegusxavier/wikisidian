@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from litellm import completion
 from src.core.embedder import VectorStore
 from src.config import MARCADOR_IA
+from typing import Generator
 
 # Carrega as variaveis do arquivo .env para a memoria
 load_dotenv()
@@ -29,11 +30,11 @@ class WikisidianChat:
             print(f"Aviso: Erro ao ler arquivo no caminho {caminho}: {e}")
             return ""
 
-    def perguntar(self, pergunta_usuario: str, top_k: int = 6) -> str:
+    def perguntar(self, pergunta_usuario: str, top_k: int = 6) -> Generator[str, None, None]:
         """
         1. Procura as notas mais relevantes no ChromaDB.
         2. Monta o contexto limpo usando os caminhos reais das subpastas.
-        3. Envia para o modelo escolhido via LiteLLM.
+        3. Envia para o modelo escolhido via LiteLLM (Streaming).
         """
         # 1. Busca Matematica no ChromaDB
         resultados = self.vs.find_similar(pergunta_usuario, top_k=top_k)
@@ -46,7 +47,7 @@ class WikisidianChat:
         metadados_encontrados = resultados['metadatas'][0]
 
         if not ids_encontrados:
-            return "Desculpe, nao encontrei nenhuma nota relevante no seu cofre sobre esse assunto."
+            yield "Desculpe, nao encontrei nenhuma nota relevante no seu cofre sobre esse assunto."
 
         # 2. Montagem do Contexto
         contexto_str = ""
@@ -94,11 +95,15 @@ PERGUNTA DO USUARIO: {pergunta_usuario}
                     {"role": "system", "content": prompt_sistema},
                     {"role": "user", "content": prompt_usuario}
                 ],
-                temperature=0.3 # Temperatura baixa para garantir respostas factuais
+                temperature=0.3,
+                stream=True # <--- NOVIDADE: Habilita o streaming no LiteLLM
             )
             
-            texto_resposta = resposta.choices[0].message.content
-            return texto_resposta
+            # Em vez de retornar um texto único, nós enviamos pedaço por pedaço
+            for pedaco in resposta:
+                conteudo = pedaco.choices[0].delta.content
+                if conteudo:
+                    yield conteudo
             
         except Exception as e:
-            return f"Erro ao comunicar com a IA: {e}"
+            yield f"Erro ao comunicar com a IA: {e}"
