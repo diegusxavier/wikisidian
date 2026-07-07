@@ -1,9 +1,11 @@
 import os
 from pathlib import Path
+from typing import Generator
 from dotenv import load_dotenv
 from litellm import completion
 from src.core.embedder import VectorStore
 from src.config import MARCADOR_IA
+from typing import Generator
 
 # Carrega as variaveis do arquivo .env para a memoria
 load_dotenv()
@@ -15,6 +17,7 @@ class WikisidianChat:
         
         # Busca o modelo definido no .env. Se nao achar, usa o Gemini como padrao.
         self.modelo = os.getenv("LLM_MODEL", "gemini/gemini-3.1-flash-lite")
+        self.notas_contexto = [] # Guarda o rastro das notas utilizadas
 
     def _obter_texto_da_nota(self, caminho_completo_str: str) -> str:
         """
@@ -29,7 +32,7 @@ class WikisidianChat:
             print(f"Aviso: Erro ao ler arquivo no caminho {caminho}: {e}")
             return ""
 
-    def perguntar(self, pergunta_usuario: str, top_k: int = 6) -> str:
+    def perguntar(self, pergunta_usuario: str, top_k: int = 6) -> Generator[str, None, None]:
         """
         1. Procura as notas mais relevantes no ChromaDB.
         2. Monta o contexto limpo usando os caminhos reais das subpastas.
@@ -37,7 +40,6 @@ class WikisidianChat:
         """
         # 1. Busca Matematica no ChromaDB
         resultados = self.vs.find_similar(pergunta_usuario, top_k=top_k)
-        
         ids_encontrados = resultados['ids'][0]
         
         # AQUI ESTA A MAGICA DAS SUBPASTAS:
@@ -46,11 +48,12 @@ class WikisidianChat:
         metadados_encontrados = resultados['metadatas'][0]
 
         if not ids_encontrados:
-            return "Desculpe, nao encontrei nenhuma nota relevante no seu cofre sobre esse assunto."
+            yield "Desculpe, nao encontrei nenhuma nota relevante no seu cofre sobre esse assunto."
+            return
 
         # 2. Montagem do Contexto
         contexto_str = ""
-        notas_utilizadas = []
+        self.notas_contexto = [] # Limpa as notas da pergunta anterior
 
         # O zip permite percorrer o nome da nota e a sua etiqueta de caminho ao mesmo tempo
         for nome_nota, metadado in zip(ids_encontrados, metadados_encontrados):
@@ -68,7 +71,11 @@ class WikisidianChat:
                 contexto_str += f"\n--- INICIO DA NOTA: {nome_nota} ---\n"
                 contexto_str += f"{texto_limpo}\n"
                 contexto_str += f"--- FIM DA NOTA ---\n"
-                notas_utilizadas.append(nome_nota)
+
+                self.notas_contexto.append({
+                    "nome": nome_nota,
+                    "caminho": caminho_real
+                })
 
         # 3. O Prompt Estruturado
         prompt_sistema = """Voce e o Wikisidian, um assistente pessoal.

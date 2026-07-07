@@ -136,32 +136,71 @@ chat_engine = iniciar_sistema(str(VAULT_PATH_DINAMICO), lista_fresca)
 aba_chat, aba_linker = st.tabs(["💬 Chat RAG", "🔗 Gestor de Conexões"])
 
 # ------------------------------------------
-# ABA 1: O CHAT
+# ABA 1: O CHAT (SPLIT SCREEN)
 # ------------------------------------------
 with aba_chat:
-    # Memória da Sessão (Histórico)
+    # 1. Variáveis de Estado para o Visualizador
     if "mensagens" not in st.session_state:
         st.session_state.mensagens = []
+    if "nota_visualizada" not in st.session_state:
+        st.session_state.nota_visualizada = None
+        st.session_state.caminho_nota = None
 
-    for msg in st.session_state.mensagens:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    # 2. Criamos o Split Screen: 60% para o Chat, 40% para a Nota
+    col_chat, col_nota = st.columns([6, 4], gap="large")
 
-    # A Caixa de Texto (Nota: passamos a usar st.chat_input direto no código,
-    # ele já se prende automaticamente ao fundo da aba ativa)
-    pergunta = st.chat_input("Pergunte algo sobre suas anotações...")
-
-    if pergunta:
-        with st.chat_message("user"):
-            st.markdown(pergunta)
-        st.session_state.mensagens.append({"role": "user", "content": pergunta})
-        
-        with st.chat_message("assistant"):
-            with st.spinner("Consultando o banco de dados..."):
-                resposta_ia = chat_engine.perguntar(pergunta)
-                st.markdown(resposta_ia)
+    # --- LADO ESQUERDO: CHAT ---
+    with col_chat:
+        # Renderiza o histórico
+        for i, msg in enumerate(st.session_state.mensagens):
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
                 
-        st.session_state.mensagens.append({"role": "assistant", "content": resposta_ia})
+                # Se for uma resposta da IA, desenha as fontes clicáveis
+                if msg["role"] == "assistant" and "fontes" in msg and msg["fontes"]:
+                    with st.expander("📚 Ver notas originais"):
+                        for fonte in msg["fontes"]:
+                            # O 'key' precisa ser único para cada botão no Streamlit
+                            if st.button(f"📄 {fonte['nome']}", key=f"btn_{i}_{fonte['nome']}"):
+                                st.session_state.nota_visualizada = fonte['nome']
+                                st.session_state.caminho_nota = fonte['caminho']
+                                st.rerun() # Recarrega a tela para exibir a nota na direita
+
+        pergunta = st.chat_input("Pergunte algo sobre as suas anotações...")
+
+        if pergunta:
+            with st.chat_message("user"):
+                st.markdown(pergunta)
+            st.session_state.mensagens.append({"role": "user", "content": pergunta})
+            
+            with st.chat_message("assistant"):
+                resposta_ia = st.write_stream(chat_engine.perguntar(pergunta))
+                    
+            # Guarda a resposta E a lista de fontes no histórico
+            st.session_state.mensagens.append({
+                "role": "assistant", 
+                "content": resposta_ia,
+                "fontes": list(chat_engine.notas_contexto) # Copia a lista das notas usadas
+            })
+            st.rerun() # Força o recarregamento para exibir os botões das fontes imediatamente
+
+    # --- LADO DIREITO: VISUALIZADOR MARKDOWN ---
+    with col_nota:
+        st.header("📄 Visualizador de Notas")
+        st.divider()
+        
+        if st.session_state.nota_visualizada:
+            st.subheader(st.session_state.nota_visualizada)
+            
+            # Lê o ficheiro em tempo real e de forma segura
+            conteudo_nota = read_file_content(Path(st.session_state.caminho_nota))
+            
+            # Cria uma "caixa" com altura fixa e barra de scroll
+            with st.container(height=550):
+                # st.markdown renderiza perfeitamente o seu texto, imagens web, tabelas e fórmulas $$
+                st.markdown(conteudo_nota)
+        else:
+            st.info("👈 Faça uma pergunta e clique numa das notas utilizadas no chat para ler o seu conteúdo original aqui.")
 
 # ------------------------------------------
 # ABA 2: O LINKER (INJEÇÃO E REMOÇÃO DE BACKLINKS)
