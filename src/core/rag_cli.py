@@ -101,11 +101,15 @@ PERGUNTA DO USUARIO: {pergunta_usuario}
                     {"role": "system", "content": prompt_sistema},
                     {"role": "user", "content": prompt_usuario}
                 ],
-                temperature=0.3 # Temperatura baixa para garantir respostas factuais
+                temperature=0.3,
+                stream=True # 1. Habilita o streaming no LiteLLM
             )
             
-            texto_resposta = resposta.choices[0].message.content
-            return texto_resposta
+            # 2. Devolvemos a resposta palavra por palavra usando yield
+            for pedaco in resposta:
+                conteudo = pedaco.choices[0].delta.content
+                if conteudo:
+                    yield conteudo
             
         except Exception as e:
-            return f"Erro ao comunicar com a IA: {e}"
+            yield f"Erro ao comunicar com a IA: {e}"
