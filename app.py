@@ -37,9 +37,11 @@ def selecionar_pasta_graficamente(caminho_atual):
 # ==========================================
 # 2. MENU LATERAL (CONFIGURAÇÕES)
 # ==========================================
+
 with st.sidebar:
     st.header("⚙️ Configurações")
     
+    # --- BLOCO 1: SELEÇÃO DO COFRE ---
     st.write("**Caminho do Cofre Obsidian:**")
     caminho_exibicao = str(VAULT_PATH_DINAMICO) if VAULT_PATH_DINAMICO else "Nenhum cofre selecionado"
     st.info(caminho_exibicao)
@@ -51,11 +53,46 @@ with st.sidebar:
         if pasta_escolhida:
             CONFIG_ATUAL["vault_path"] = pasta_escolhida
             salvar_configuracoes(CONFIG_ATUAL)
-            
             st.success("Caminho atualizado com sucesso!")
             st.cache_resource.clear()  
             st.rerun()  
 
+    st.divider()
+
+    # --- BLOCO 2: PASTAS IGNORADAS ---
+    # st.expander cria um "Toggle" expansível. Tudo dentro do 'with' fica oculto até clicar.
+    with st.expander("🚫 Pastas Ignoradas"):
+        st.write("Selecione as pastas que a IA **NÃO** deve ler:")
+        
+        lista_atual = CONFIG_ATUAL.get("ignored_folders", [".obsidian", "99 - TEMP"])
+        novas_ignoradas = []
+        
+        if VAULT_PATH_DINAMICO and VAULT_PATH_DINAMICO.exists():
+            # 1. Lê todas as pastas de primeiro nível dentro do cofre
+            pastas_no_cofre = [p.name for p in VAULT_PATH_DINAMICO.iterdir() if p.is_dir()]
+            
+            # 2. Junta as pastas encontradas com as que já estavam salvas (para garantir que pastas ocultas como .obsidian apareçam)
+            todas_as_pastas = sorted(list(set(pastas_no_cofre + lista_atual)))
+            
+            # 3. Cria um Checkbox para cada pasta dinamicamente
+            for pasta in todas_as_pastas:
+                # O parâmetro 'value' define se a caixinha já começa marcada
+                marcado = st.checkbox(f"📁 {pasta}", value=(pasta in lista_atual))
+                
+                # Se estiver marcado na tela, adicionamos à nossa lista temporária
+                if marcado:
+                    novas_ignoradas.append(pasta)
+            
+            # 4. O botão para confirmar e salvar no JSON
+            if st.button("💾 Salvar Filtros"):
+                CONFIG_ATUAL["ignored_folders"] = novas_ignoradas
+                salvar_configuracoes(CONFIG_ATUAL)
+                
+                st.success("Filtros atualizados!")
+                st.cache_resource.clear() # Limpa a IA
+                st.rerun()                # Recarrega a página
+        else:
+            st.info("Selecione um cofre primeiro para ver as pastas.")
 # ==========================================
 # 3. ÁREA PRINCIPAL E INICIALIZAÇÃO
 # ==========================================
