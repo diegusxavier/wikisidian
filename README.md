@@ -44,3 +44,49 @@ wikisidian/
 ├── main.py                 # Launcher (ponto de entrada único para inicialização do ecossistema)
 ├── requirements.txt        # Dependências de bibliotecas do Python
 └── settings.json           # Arquivo gerado dinamicamente para persistência de configurações
+```
+
+## 🛠️ Como Utilizar
+Pré-requisitos
+Python 3.10 ou superior instalado.
+
+Se optar por rodar modelos locais, garanta que o Ollama esteja em execução com o modelo de sua escolha (ex: llama3).
+
+### 1. Configuração do Ambiente
+Clone o repositório, crie seu ambiente virtual (venv) e instale as dependências necessárias:
+
+```bash
+# Ative seu ambiente virtual (Windows)
+venv\Scripts\activate
+
+## Instale os pacotes necessários
+pip install -r requirements.txt
+```
+
+### 2. Variáveis de Ambiente
+Crie um arquivo .env na raiz do projeto com as chaves necessárias para os modelos que deseja utilizar (consulte o .env.example para referência). Exemplo para o Gemini:
+
+```bash
+GEMINI_API_KEY=sua_chave_aqui
+LLM_MODEL=gemini/gemini-3.1-flash-lite
+```
+
+
+### 3. Inicialização
+Para iniciar a aplicação, utilize o ponto de entrada oficial do ecossistema:
+
+```bash
+python main.py
+```
+
+O comando executará o script launcher, que abrirá automaticamente o seu navegador padrão na interface gráfica do Wikisidian.
+
+## 🚀 Como Funciona no Dia a Dia
+
+- Configuração Inicial: No menu lateral esquerdo da tela, insira o caminho absoluto para a pasta do seu cofre do Obsidian. O sistema fará a varredura e a indexação automática instantaneamente.
+
+- Definição de Filtros: Expanda o menu "🚫 Pastas Ignoradas", selecione as pastas onde você não quer que a IA mexa (como pastas de anexos, templates ou notas temporárias) e clique em Salvar Filtros.
+
+- Conversação: Faça uma pergunta na aba 💬 Chat RAG. Use os botões dentro do painel "📚 Ver notas originais" para abrir o conteúdo original na lateral da tela.
+
+- Geração de Grafos Físicos: Mude para a aba 🔗 Gestor de Conexões, determine o número de conexões semânticas desejadas no seletor e clique em Iniciar Injeção de Links para ver os backlinks surgindo no seu Obsidian em tempo real.
