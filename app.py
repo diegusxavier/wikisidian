@@ -93,6 +93,7 @@ with st.sidebar:
                 st.rerun()                # Recarrega a página
         else:
             st.info("Selecione um cofre primeiro para ver as pastas.")
+
 # ==========================================
 # 3. ÁREA PRINCIPAL E INICIALIZAÇÃO
 # ==========================================
@@ -102,24 +103,30 @@ if not VAULT_PATH_DINAMICO or not VAULT_PATH_DINAMICO.exists():
     st.warning("👈 Por favor, selecione a pasta válida do seu cofre do Obsidian no menu lateral para iniciar.")
     st.stop()
 
-# A MÁGICA ACONTECE AQUI:
-# Ao receber o 'caminho_str' como argumento, o Streamlit sabe que se o caminho mudar,
-# ele é obrigado a deletar o cache velho e rodar tudo de novo na nova pasta!
+# Passamos as pastas ignoradas como parâmetro. Convertemos para 'tuple' (tupla) 
+# porque o @st.cache_resource exige variáveis imutáveis para funcionar corretamente.
 @st.cache_resource
-def iniciar_sistema(caminho_str):
+def iniciar_sistema(caminho_str, pastas_ignoradas_tupla):
     caminho_cofre = Path(caminho_str)
     
-    arquivos_md = get_all_md_files(caminho_cofre)
+    # 1. Busca as notas, agora enviando a lista atualizada de pastas ignoradas
+    arquivos_md = get_all_md_files(caminho_cofre, pastas_ignoradas_tupla)
+    
     vetor_db = VectorStore()
     vetor_db.sync_db(arquivos_md)
     
-    conteudos = [read_file_content(f) for f in arquivos_md]
-    vetor_db.add_notes(arquivos_md, conteudos) 
+    # 2. Proteção: Só adiciona se houver ficheiros (evita erros se você ignorar tudo)
+    if arquivos_md:
+        conteudos = [read_file_content(f) for f in arquivos_md]
+        vetor_db.add_notes(arquivos_md, conteudos) 
+    else:
+        st.info("Nenhuma nota encontrada nas pastas permitidas.")
     
     return WikisidianChat(vetor_db, caminho_cofre)
 
-# Passamos o caminho como string para o motor
-chat_engine = iniciar_sistema(str(VAULT_PATH_DINAMICO))
+# Pegamos a lista fresca do JSON, convertemos para tupla e injetamos no motor!
+lista_fresca = tuple(CONFIG_ATUAL.get("ignored_folders", []))
+chat_engine = iniciar_sistema(str(VAULT_PATH_DINAMICO), lista_fresca)
 
 # ==========================================
 # 4. MEMÓRIA DA SESSÃO (HISTÓRICO)
