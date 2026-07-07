@@ -36,7 +36,7 @@ class WikisidianChat:
         """
         1. Procura as notas mais relevantes no ChromaDB.
         2. Monta o contexto limpo usando os caminhos reais das subpastas.
-        3. Envia para o modelo escolhido via LiteLLM (Streaming).
+        3. Envia para o modelo escolhido via LiteLLM.
         """
         # 1. Busca Matematica no ChromaDB
         resultados = self.vs.find_similar(pergunta_usuario, top_k=top_k)
@@ -49,6 +49,7 @@ class WikisidianChat:
 
         if not ids_encontrados:
             yield "Desculpe, nao encontrei nenhuma nota relevante no seu cofre sobre esse assunto."
+            return
 
         # 2. Montagem do Contexto
         contexto_str = ""
@@ -101,10 +102,10 @@ PERGUNTA DO USUARIO: {pergunta_usuario}
                     {"role": "user", "content": prompt_usuario}
                 ],
                 temperature=0.3,
-                stream=True # <--- NOVIDADE: Habilita o streaming no LiteLLM
+                stream=True # 1. Habilita o streaming no LiteLLM
             )
             
-            # Em vez de retornar um texto único, nós enviamos pedaço por pedaço
+            # 2. Devolvemos a resposta palavra por palavra usando yield
             for pedaco in resposta:
                 conteudo = pedaco.choices[0].delta.content
                 if conteudo:

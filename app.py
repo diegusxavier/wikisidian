@@ -165,19 +165,12 @@ with aba_chat:
     # 2. Criamos o Split Screen: 60% para o Chat, 40% para a Nota
     col_chat, col_nota = st.columns([6, 4], gap="large")
 
-    # A Caixa de Texto (Nota: passamos a usar st.chat_input direto no código,
-    # ele já se prende automaticamente ao fundo da aba ativa)
-    pergunta = st.chat_input("Pergunte algo sobre suas anotações...")
-
-    if pergunta:
-        with st.chat_message("user"):
-            st.markdown(pergunta)
-        st.session_state.mensagens.append({"role": "user", "content": pergunta})
-        
-        with st.chat_message("assistant"):
-            # O st.write_stream recebe o gerador, faz o efeito de máquina de escrever
-            # e depois devolve a string completa para podermos salvar no histórico!
-            resposta_ia = st.write_stream(chat_engine.perguntar(pergunta))
+    # --- LADO ESQUERDO: CHAT ---
+    with col_chat:
+        # Renderiza o histórico
+        for i, msg in enumerate(st.session_state.mensagens):
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
                 
                 # Se for uma resposta da IA, desenha as fontes clicáveis
                 if msg["role"] == "assistant" and "fontes" in msg and msg["fontes"]:
