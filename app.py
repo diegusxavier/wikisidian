@@ -139,6 +139,22 @@ aba_chat, aba_linker = st.tabs(["💬 Chat RAG", "🔗 Gestor de Conexões"])
 # ABA 1: O CHAT (SPLIT SCREEN)
 # ------------------------------------------
 with aba_chat:
+    
+    # === MAGIA DO CSS: COLUNA FIXA ===
+    st.markdown("""
+        <style>
+            /* Cobre tanto as versões novas quanto as antigas do Streamlit */
+            div[data-testid="stColumn"]:nth-of-type(2),
+            div[data-testid="column"]:nth-of-type(2) {
+                position: -webkit-sticky !important; /* Suporte para navegadores baseados em webkit */
+                position: sticky !important;
+                top: 70px !important; /* Distância exata do topo para não cobrir o cabeçalho */
+                align-self: flex-start !important; /* Impede a coluna de esticar infinitamente */
+                z-index: 999 !important; /* Garante que fique por cima de outros elementos */
+            }
+        </style>
+    """, unsafe_allow_html=True)
+    # =================================
     # 1. Variáveis de Estado para o Visualizador
     if "mensagens" not in st.session_state:
         st.session_state.mensagens = []
