@@ -7,6 +7,8 @@ from src.config import carregar_configuracoes, salvar_configuracoes
 from src.utils.file_handler import get_all_md_files, read_file_content
 from src.core.embedder import VectorStore
 from src.core.rag_cli import WikisidianChat
+from src.core.linker import ObsidianLinker
+from src.utils.undo_links import remove_ia_links
 
 st.set_page_config(page_title="Wikisidian", page_icon="🧠", layout="wide")
 
@@ -129,28 +131,93 @@ lista_fresca = tuple(CONFIG_ATUAL.get("ignored_folders", []))
 chat_engine = iniciar_sistema(str(VAULT_PATH_DINAMICO), lista_fresca)
 
 # ==========================================
-# 4. MEMÓRIA DA SESSÃO (HISTÓRICO)
+# 4. CRIAÇÃO DAS ABAS (TABS)
 # ==========================================
-if "mensagens" not in st.session_state:
-    st.session_state.mensagens = []
+aba_chat, aba_linker = st.tabs(["💬 Chat RAG", "🔗 Gestor de Conexões"])
 
-for msg in st.session_state.mensagens:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+# ------------------------------------------
+# ABA 1: O CHAT
+# ------------------------------------------
+with aba_chat:
+    # Memória da Sessão (Histórico)
+    if "mensagens" not in st.session_state:
+        st.session_state.mensagens = []
 
-# ==========================================
-# 5. A CAIXA DE TEXTO E LÓGICA DE RESPOSTA
-# ==========================================
-pergunta = st.chat_input("Pergunte algo sobre suas anotações...")
+    for msg in st.session_state.mensagens:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-if pergunta:
-    with st.chat_message("user"):
-        st.markdown(pergunta)
-    st.session_state.mensagens.append({"role": "user", "content": pergunta})
+    # A Caixa de Texto (Nota: passamos a usar st.chat_input direto no código,
+    # ele já se prende automaticamente ao fundo da aba ativa)
+    pergunta = st.chat_input("Pergunte algo sobre suas anotações...")
+
+    if pergunta:
+        with st.chat_message("user"):
+            st.markdown(pergunta)
+        st.session_state.mensagens.append({"role": "user", "content": pergunta})
+        
+        with st.chat_message("assistant"):
+            with st.spinner("Consultando o banco de dados..."):
+                resposta_ia = chat_engine.perguntar(pergunta)
+                st.markdown(resposta_ia)
+                
+        st.session_state.mensagens.append({"role": "assistant", "content": resposta_ia})
+
+# ------------------------------------------
+# ABA 2: O LINKER (INJEÇÃO E REMOÇÃO DE BACKLINKS)
+# ------------------------------------------
+with aba_linker:
+    st.header("Gerador Automático de Backlinks")
+    st.write("A IA varre o seu cofre e injeta notas relacionadas no final dos arquivos. Você também pode desfazer este processo a qualquer momento.")
     
-    with st.chat_message("assistant"):
-        with st.spinner("Consultando o banco de dados..."):
-            resposta_ia = chat_engine.perguntar(pergunta)
-            st.markdown(resposta_ia)
+    top_k_links = st.slider("Quantos links deseja injetar por nota?", min_value=1, max_value=5, value=3)
+    
+    st.write("") # Dá um pequeno espaçamento visual
+    
+    # Criamos duas colunas com o mesmo tamanho
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Botão de ação principal
+        btn_injetar = st.button("🚀 Iniciar Injeção de Links", use_container_width=True)
+        
+    with col2:
+        # Botão de reversão
+        btn_remover = st.button("🧹 Desfazer Todos os Links", use_container_width=True)
+        
+    # --- LÓGICA DO BOTÃO INJETAR ---
+    if btn_injetar:
+        arquivos_para_processar = get_all_md_files(VAULT_PATH_DINAMICO, lista_fresca)
+        total_arquivos = len(arquivos_para_processar)
+        
+        if total_arquivos == 0:
+            st.warning("Nenhum ficheiro encontrado para processar.")
+        else:
+            linker = ObsidianLinker(chat_engine.vs)
+            notas_atualizadas = 0
             
-    st.session_state.mensagens.append({"role": "assistant", "content": resposta_ia})
+            barra_progresso = st.progress(0)
+            texto_status = st.empty() 
+            
+            for i, arquivo in enumerate(arquivos_para_processar):
+                texto_status.text(f"Processando ({i+1}/{total_arquivos}): {arquivo.name}")
+                
+                alterou = linker.inject_links(arquivo, top_k=top_k_links)
+                if alterou:
+                    notas_atualizadas += 1
+                
+                barra_progresso.progress((i + 1) / total_arquivos)
+            
+            texto_status.success(f"Finalizado! {notas_atualizadas} notas receberam novas conexões.")
+            st.balloons()
+
+    # --- LÓGICA DO BOTÃO DESFAZER ---
+    if btn_remover:
+        with st.spinner("A varrer o cofre e a remover as assinaturas da IA..."):
+            # Chama a função de limpeza com a lista fresca de pastas ignoradas
+            total_limpo = remove_ia_links(VAULT_PATH_DINAMICO, lista_fresca)
+            
+            if total_limpo > 0:
+                st.success(f"Ufa! {total_limpo} ficheiros foram restaurados ao seu estado original com sucesso.")
+            else:
+                st.info("Nenhuma nota com links gerados pela IA foi encontrada nas suas pastas.")
