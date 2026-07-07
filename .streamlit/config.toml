@@ -1,0 +1,8 @@
+[logger]
+# Muda o nível do log global do Streamlit. 
+# 'error' vai calar os warnings do inspetor de arquivos (LocalSourcesWatcher).
+level = "error"
+
+[server]
+# Desativa avisos de depreciação na tela e foca apenas no que importa
+developmentMode = false
