@@ -157,9 +157,9 @@ with aba_chat:
         st.session_state.mensagens.append({"role": "user", "content": pergunta})
         
         with st.chat_message("assistant"):
-            with st.spinner("Consultando o banco de dados..."):
-                resposta_ia = chat_engine.perguntar(pergunta)
-                st.markdown(resposta_ia)
+            # O st.write_stream recebe o gerador, faz o efeito de máquina de escrever
+            # e depois devolve a string completa para podermos salvar no histórico!
+            resposta_ia = st.write_stream(chat_engine.perguntar(pergunta))
                 
         st.session_state.mensagens.append({"role": "assistant", "content": resposta_ia})
 
