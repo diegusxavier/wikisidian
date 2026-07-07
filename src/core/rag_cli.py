@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Generator
 from dotenv import load_dotenv
 from litellm import completion
 from src.core.embedder import VectorStore
@@ -16,6 +17,7 @@ class WikisidianChat:
         
         # Busca o modelo definido no .env. Se nao achar, usa o Gemini como padrao.
         self.modelo = os.getenv("LLM_MODEL", "gemini/gemini-3.1-flash-lite")
+        self.notas_contexto = [] # Guarda o rastro das notas utilizadas
 
     def _obter_texto_da_nota(self, caminho_completo_str: str) -> str:
         """
@@ -34,11 +36,10 @@ class WikisidianChat:
         """
         1. Procura as notas mais relevantes no ChromaDB.
         2. Monta o contexto limpo usando os caminhos reais das subpastas.
-        3. Envia para o modelo escolhido via LiteLLM (Streaming).
+        3. Envia para o modelo escolhido via LiteLLM.
         """
         # 1. Busca Matematica no ChromaDB
         resultados = self.vs.find_similar(pergunta_usuario, top_k=top_k)
-        
         ids_encontrados = resultados['ids'][0]
         
         # AQUI ESTA A MAGICA DAS SUBPASTAS:
@@ -48,10 +49,11 @@ class WikisidianChat:
 
         if not ids_encontrados:
             yield "Desculpe, nao encontrei nenhuma nota relevante no seu cofre sobre esse assunto."
+            return
 
         # 2. Montagem do Contexto
         contexto_str = ""
-        notas_utilizadas = []
+        self.notas_contexto = [] # Limpa as notas da pergunta anterior
 
         # O zip permite percorrer o nome da nota e a sua etiqueta de caminho ao mesmo tempo
         for nome_nota, metadado in zip(ids_encontrados, metadados_encontrados):
@@ -69,7 +71,11 @@ class WikisidianChat:
                 contexto_str += f"\n--- INICIO DA NOTA: {nome_nota} ---\n"
                 contexto_str += f"{texto_limpo}\n"
                 contexto_str += f"--- FIM DA NOTA ---\n"
-                notas_utilizadas.append(nome_nota)
+
+                self.notas_contexto.append({
+                    "nome": nome_nota,
+                    "caminho": caminho_real
+                })
 
         # 3. O Prompt Estruturado
         prompt_sistema = """Voce e o Wikisidian, um assistente pessoal.
@@ -96,10 +102,10 @@ PERGUNTA DO USUARIO: {pergunta_usuario}
                     {"role": "user", "content": prompt_usuario}
                 ],
                 temperature=0.3,
-                stream=True # <--- NOVIDADE: Habilita o streaming no LiteLLM
+                stream=True # 1. Habilita o streaming no LiteLLM
             )
             
-            # Em vez de retornar um texto único, nós enviamos pedaço por pedaço
+            # 2. Devolvemos a resposta palavra por palavra usando yield
             for pedaco in resposta:
                 conteudo = pedaco.choices[0].delta.content
                 if conteudo:
