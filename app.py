@@ -9,11 +9,27 @@ from src.core.embedder import VectorStore
 from src.core.rag_cli import WikisidianChat
 from src.core.linker import ObsidianLinker
 from src.utils.undo_links import remove_ia_links
+import uuid
+from src.utils.history_handler import salvar_conversa, carregar_conversa, listar_conversas, excluir_conversa
+
 
 st.set_page_config(page_title="Wikisidian", page_icon="🧠", layout="wide")
 
 # ==========================================
-# 0. CARREGAMENTO DINÂMICO (Anti-Cache)
+# 0. INICIALIZAÇÃO DE VARIÁVEIS DE ESTADO (GLOBAL)
+# ==========================================
+if "mensagens" not in st.session_state:
+    st.session_state.mensagens = []
+if "nota_visualizada" not in st.session_state:
+    st.session_state.nota_visualizada = None
+    st.session_state.caminho_nota = None
+if "conv_id" not in st.session_state:
+    st.session_state.conv_id = None # ID único da conversa atual (JSON)
+if "conversa_temporaria" not in st.session_state:
+    st.session_state.conversa_temporaria = False
+
+# ==========================================
+# 0.1 CARREGAMENTO DINÂMICO (Anti-Cache)
 # ==========================================
 # Lemos o JSON em tempo real toda vez que a tela atualiza
 CONFIG_ATUAL = carregar_configuracoes()
@@ -61,7 +77,35 @@ with st.sidebar:
 
     st.divider()
 
-    # --- BLOCO 2: PASTAS IGNORADAS ---
+    # --- BLOCO 2: HISTÓRICO DE CONVERSAS ---
+    todas_conversas = listar_conversas()
+    
+    with st.expander("🕟 Histórico de Conversas", expanded=False):
+        if not todas_conversas:
+            st.info("Nenhuma conversa salva.")
+        else:
+            # Selecionador de conversa
+            opcoes = {c["id"]: c["titulo"] for c in todas_conversas}
+            escolha_id = st.selectbox("Selecione para continuar:", options=list(opcoes.keys()), format_func=lambda x: opcoes[x])
+            
+            col_carregar, col_excluir = st.columns(2)
+            if col_carregar.button("📂 Carregar"):
+                st.session_state.mensagens = carregar_conversa(escolha_id)
+                st.session_state.conv_id = escolha_id
+                st.session_state.nota_visualizada = None
+                st.rerun()
+                
+            if col_excluir.button("🗑️ Excluir"):
+                excluir_conversa(escolha_id)
+                if st.session_state.conv_id == escolha_id:
+                    st.session_state.mensagens = []
+                    st.session_state.conv_id = None
+                st.success("Apagado!")
+                st.rerun()
+
+    st.divider()
+
+    # --- BLOCO 3: PASTAS IGNORADAS ---
     # st.expander cria um "Toggle" expansível. Tudo dentro do 'with' fica oculto até clicar.
     st.write("**🚫 Pastas Ignoradas:**")
     
@@ -177,10 +221,11 @@ with aba_chat:
     
     with col_limpar:
         st.write("")
-        if st.button("🗑️ Limpar Conversa", use_container_width=True):
+        if st.button("✨ Nova Conversa", use_container_width=True):
             st.session_state.mensagens = []
             st.session_state.nota_visualizada = None
             st.session_state.caminho_nota = None
+            st.session_state.conv_id = None # Reseta o ID para criar um novo JSON
             st.rerun()
 
     with col_temp:
@@ -195,12 +240,6 @@ with aba_chat:
     
     st.divider()
 
-    # 1. Variáveis de Estado para o Visualizador
-    if "mensagens" not in st.session_state:
-        st.session_state.mensagens = []
-    if "nota_visualizada" not in st.session_state:
-        st.session_state.nota_visualizada = None
-        st.session_state.caminho_nota = None
 
     # 2. Criamos o Split Screen: 60% para o Chat, 40% para a Nota
     col_chat, col_nota = st.columns([6, 4], gap="large")
@@ -244,6 +283,19 @@ with aba_chat:
                 "content": resposta_ia,
                 "fontes": list(chat_engine.notas_contexto) 
             })
+            
+            # SALVAMENTO AUTOMÁTICO
+            if not st.session_state.conversa_temporaria:
+                # Se não tem ID, gera um novo
+                if not st.session_state.conv_id:
+                    st.session_state.conv_id = str(uuid.uuid4())[:8]
+                
+                # O título será as primeiras 40 letras da primeira pergunta do usuário
+                titulo_conversa = st.session_state.mensagens[0]["content"][:40] + "..."
+                
+                # Salva o arquivo JSON no disco
+                salvar_conversa(st.session_state.conv_id, st.session_state.mensagens, titulo_conversa)
+                
             st.rerun()
 
     # --- LADO DIREITO: VISUALIZADOR MARKDOWN ---
