@@ -173,10 +173,26 @@ with aba_chat:
     # =================================
 
     # --- NOVO: CABEÇALHO DO CHAT E MODO HÍBRIDO ---
-    col_titulo, col_toggle = st.columns([6, 4])
-    with col_toggle:
-        st.write("") # Espaçamento
-        modo_criativo = st.toggle("🌐 Usar Conhecimento Externo (NotebookLM Mode)", value=False, help="Ative para permitir que a IA cruze os seus dados com conhecimentos externos para responder a perguntas não documentadas.")
+    col_limpar, col_temp, col_hibrido = st.columns([2, 3, 3])
+    
+    with col_limpar:
+        st.write("")
+        if st.button("🗑️ Limpar Conversa", use_container_width=True):
+            st.session_state.mensagens = []
+            st.session_state.nota_visualizada = None
+            st.session_state.caminho_nota = None
+            st.rerun()
+
+    with col_temp:
+        st.write("")
+        conversa_temp = st.toggle("👻 Modo Temporário", value=False, help="Não salva esta conversa nos históricos futuros.")
+        # Guardaremos este valor para o Passo 2 (salvamento JSON)
+        st.session_state.conversa_temporaria = conversa_temp 
+
+    with col_hibrido:
+        st.write("") 
+        modo_criativo = st.toggle("🌐 Conhecimento Externo", value=False, help="Ative para permitir que a IA cruze os seus dados com conhecimentos externos.")
+    
     st.divider()
 
     # 1. Variáveis de Estado para o Visualizador
@@ -191,7 +207,6 @@ with aba_chat:
 
     # --- LADO ESQUERDO: CHAT ---
     with col_chat:
-        # Renderiza o histórico
         for i, msg in enumerate(st.session_state.mensagens):
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
@@ -209,12 +224,20 @@ with aba_chat:
         if pergunta:
             with st.chat_message("user"):
                 st.markdown(pergunta)
+            
+            # Adicionamos a pergunta ANTES da chamada, para o histórico ficar visualmente atualizado,
+            # mas vamos passar para a IA apenas as mensagens *anteriores* a esta.
             st.session_state.mensagens.append({"role": "user", "content": pergunta})
             
             with st.chat_message("assistant"):
-                # NOVO: Passamos a escolha do usuário para o motor. 
-                # (Se modo criativo = True, modo estrito = False)
-                resposta_ia = st.write_stream(chat_engine.perguntar(pergunta, modo_estrito=not modo_criativo))
+                # NOVO: Passamos o histórico recente (excluindo a última pergunta inserida acima)
+                resposta_ia = st.write_stream(
+                    chat_engine.perguntar(
+                        pergunta, 
+                        modo_estrito=not modo_criativo,
+                        historico=st.session_state.mensagens[:-1] 
+                    )
+                )
                     
             st.session_state.mensagens.append({
                 "role": "assistant", 

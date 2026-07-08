@@ -32,18 +32,17 @@ class WikisidianChat:
             print(f"Aviso: Erro ao ler arquivo no caminho {caminho}: {e}")
             return ""
 
-    def perguntar(self, pergunta_usuario: str, top_k: int = 6, modo_estrito: bool = True) -> Generator[str, None, None]:
+    def perguntar(self, pergunta_usuario: str, top_k: int = 6, modo_estrito: bool = True, historico: list = None) -> Generator[str, None, None]:
         """
         1. Procura as notas mais relevantes no ChromaDB.
         2. Monta o contexto limpo usando os caminhos reais.
         3. Define o Prompt (Estrito ou Híbrido) com base na escolha do utilizador.
-        4. Envia para o modelo escolhido via LiteLLM.
+        4. Envia para o modelo escolhido via LiteLLM, incluindo o histórico.
         """
         resultados = self.vs.find_similar(pergunta_usuario, top_k=top_k)
         ids_encontrados = resultados['ids'][0]
         metadados_encontrados = resultados['metadatas'][0]
 
-        # Se for estrito e não achar nada, para por aqui.
         if not ids_encontrados and modo_estrito:
             yield "Desculpe, não encontrei nenhuma nota relevante no seu cofre sobre esse assunto."
             return
@@ -67,6 +66,18 @@ class WikisidianChat:
         else:
             contexto_str = "Nenhuma nota encontrada no cofre sobre este tópico específico."
 
+        # --- NOVO: Tratamento do Histórico Conversacional ---
+        historico_str = ""
+        if historico:
+            historico_str = "HISTÓRICO RECENTE DA CONVERSA (Para contexto):\n"
+            # Pegamos apenas as últimas 4 mensagens (2 interações) para poupar tokens
+            for msg in historico[-4:]:
+                remetente = "Usuário" if msg["role"] == "user" else "Assistente"
+                # Removemos a lista de fontes do histórico para não poluir os tokens
+                conteudo = msg.get("content", "")
+                historico_str += f"{remetente}: {conteudo}\n"
+            historico_str += "\n"
+
         # 3. O Prompt Dinâmico
         if modo_estrito:
             temperatura = 0.2
@@ -77,16 +88,17 @@ class WikisidianChat:
             3. Nao utilize nenhum conhecimento externo.
             Ao final da sua resposta, adicione uma secao chamada 'Fontes Utilizadas:' e liste as notas."""
         else:
-            temperatura = 0.6 # Mais alta para permitir criatividade e inferências
+            temperatura = 0.6 
             prompt_sistema = """Você é o Wikisidian, um assistente de conhecimento estilo NotebookLM.
             REGRAS OBRIGATORIAS:
             1. Você receberá um CONTEXTO com as notas do usuário. Priorize sempre essas informações.
             2. Se a resposta completa ou parcial NÃO estiver no contexto, você DEVE usar o seu conhecimento externo para expandir a resposta, conectar conceitos ou preencher lacunas.
-            3. TRANSPARÊNCIA: Se utilizar conhecimento externo, avise claramente no meio do texto (ex: "Expandindo com conhecimentos gerais..." ou "Embora não esteja detalhado nas suas notas...").
-            4. Seja inteligente com siglas: se o usuário perguntar de "RTOS" e o contexto falar de "Sistema Operacional de Tempo Real", faça a correlação.
-            5. Ao final da sua resposta, adicione uma seção chamada 'Notas Relacionadas:' e liste os nomes das notas do contexto que tangenciam o assunto."""
+            3. TRANSPARÊNCIA: Se utilizar conhecimento externo, avise claramente no meio do texto (ex: "Expandindo com conhecimentos gerais...").
+            4. Seja inteligente com o HISTÓRICO: se o usuário disser "e como isso funciona?", procure a que "isso" ele se refere no histórico recente.
+            5. Ao final da sua resposta, adicione uma seção chamada 'Notas Relacionadas:' e liste os nomes das notas do contexto."""
 
-        prompt_usuario = f"""CONTEXTO (Notas do usuario):\n{contexto_str}\n\nPERGUNTA DO USUARIO: {pergunta_usuario}\n"""
+        # Injetamos o histórico antes da pergunta atual
+        prompt_usuario = f"""CONTEXTO (Notas do usuario):\n{contexto_str}\n\n{historico_str}PERGUNTA DO USUARIO: {pergunta_usuario}\n"""
 
         # 4. A Chamada à IA
         print(f"Wikisidian a processar a pergunta (Estrito: {modo_estrito})...")
