@@ -160,18 +160,25 @@ with aba_chat:
     # === MAGIA DO CSS: COLUNA FIXA ===
     st.markdown("""
         <style>
-            /* Cobre tanto as versões novas quanto as antigas do Streamlit */
             div[data-testid="stColumn"]:nth-of-type(2),
             div[data-testid="column"]:nth-of-type(2) {
-                position: -webkit-sticky !important; /* Suporte para navegadores baseados em webkit */
+                position: -webkit-sticky !important; 
                 position: sticky !important;
-                top: 70px !important; /* Distância exata do topo para não cobrir o cabeçalho */
-                align-self: flex-start !important; /* Impede a coluna de esticar infinitamente */
-                z-index: 999 !important; /* Garante que fique por cima de outros elementos */
+                top: 70px !important; 
+                align-self: flex-start !important; 
+                z-index: 999 !important; 
             }
         </style>
     """, unsafe_allow_html=True)
     # =================================
+
+    # --- NOVO: CABEÇALHO DO CHAT E MODO HÍBRIDO ---
+    col_titulo, col_toggle = st.columns([6, 4])
+    with col_toggle:
+        st.write("") # Espaçamento
+        modo_criativo = st.toggle("🌐 Usar Conhecimento Externo (NotebookLM Mode)", value=False, help="Ative para permitir que a IA cruze os seus dados com conhecimentos externos para responder a perguntas não documentadas.")
+    st.divider()
+
     # 1. Variáveis de Estado para o Visualizador
     if "mensagens" not in st.session_state:
         st.session_state.mensagens = []
@@ -189,15 +196,13 @@ with aba_chat:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
                 
-                # Se for uma resposta da IA, desenha as fontes clicáveis
                 if msg["role"] == "assistant" and "fontes" in msg and msg["fontes"]:
                     with st.expander("📚 Ver notas originais"):
                         for fonte in msg["fontes"]:
-                            # O 'key' precisa ser único para cada botão no Streamlit
                             if st.button(f"📄 {fonte['nome']}", key=f"btn_{i}_{fonte['nome']}"):
                                 st.session_state.nota_visualizada = fonte['nome']
                                 st.session_state.caminho_nota = fonte['caminho']
-                                st.rerun() # Recarrega a tela para exibir a nota na direita
+                                st.rerun() 
 
         pergunta = st.chat_input("Pergunte algo sobre as suas anotações...")
 
@@ -207,15 +212,16 @@ with aba_chat:
             st.session_state.mensagens.append({"role": "user", "content": pergunta})
             
             with st.chat_message("assistant"):
-                resposta_ia = st.write_stream(chat_engine.perguntar(pergunta))
+                # NOVO: Passamos a escolha do usuário para o motor. 
+                # (Se modo criativo = True, modo estrito = False)
+                resposta_ia = st.write_stream(chat_engine.perguntar(pergunta, modo_estrito=not modo_criativo))
                     
-            # Guarda a resposta E a lista de fontes no histórico
             st.session_state.mensagens.append({
                 "role": "assistant", 
                 "content": resposta_ia,
-                "fontes": list(chat_engine.notas_contexto) # Copia a lista das notas usadas
+                "fontes": list(chat_engine.notas_contexto) 
             })
-            st.rerun() # Força o recarregamento para exibir os botões das fontes imediatamente
+            st.rerun()
 
     # --- LADO DIREITO: VISUALIZADOR MARKDOWN ---
     with col_nota:

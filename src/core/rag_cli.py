@@ -32,68 +32,64 @@ class WikisidianChat:
             print(f"Aviso: Erro ao ler arquivo no caminho {caminho}: {e}")
             return ""
 
-    def perguntar(self, pergunta_usuario: str, top_k: int = 6) -> Generator[str, None, None]:
+    def perguntar(self, pergunta_usuario: str, top_k: int = 6, modo_estrito: bool = True) -> Generator[str, None, None]:
         """
         1. Procura as notas mais relevantes no ChromaDB.
-        2. Monta o contexto limpo usando os caminhos reais das subpastas.
-        3. Envia para o modelo escolhido via LiteLLM.
+        2. Monta o contexto limpo usando os caminhos reais.
+        3. Define o Prompt (Estrito ou Híbrido) com base na escolha do utilizador.
+        4. Envia para o modelo escolhido via LiteLLM.
         """
-        # 1. Busca Matematica no ChromaDB
         resultados = self.vs.find_similar(pergunta_usuario, top_k=top_k)
         ids_encontrados = resultados['ids'][0]
-        
-        # AQUI ESTA A MAGICA DAS SUBPASTAS:
-        # Extraimos as etiquetas de metadados que acompanham as notas encontradas.
-        # Retorna uma lista de dicionarios, ex: [{'path': 'G:/.../Nota.md'}, ...]
         metadados_encontrados = resultados['metadatas'][0]
 
-        if not ids_encontrados:
-            yield "Desculpe, nao encontrei nenhuma nota relevante no seu cofre sobre esse assunto."
+        # Se for estrito e não achar nada, para por aqui.
+        if not ids_encontrados and modo_estrito:
+            yield "Desculpe, não encontrei nenhuma nota relevante no seu cofre sobre esse assunto."
             return
 
         # 2. Montagem do Contexto
         contexto_str = ""
-        self.notas_contexto = [] # Limpa as notas da pergunta anterior
+        self.notas_contexto = [] 
 
-        # O zip permite percorrer o nome da nota e a sua etiqueta de caminho ao mesmo tempo
-        for nome_nota, metadado in zip(ids_encontrados, metadados_encontrados):
-            
-            # Pegamos o caminho completo exato que salvamos no banco de dados
-            caminho_real = metadado['path']
-            
-            # Passamos esse caminho exato para a nossa funcao de leitura
-            texto = self._obter_texto_da_nota(caminho_real)
-            
-            if texto:
-                # Removemos a area de links gerada pelo programa para manter o contexto puro
-                texto_limpo = texto.split(MARCADOR_IA)[0].strip()
+        if ids_encontrados:
+            for nome_nota, metadado in zip(ids_encontrados, metadados_encontrados):
+                caminho_real = metadado['path']
+                texto = self._obter_texto_da_nota(caminho_real)
                 
-                contexto_str += f"\n--- INICIO DA NOTA: {nome_nota} ---\n"
-                contexto_str += f"{texto_limpo}\n"
-                contexto_str += f"--- FIM DA NOTA ---\n"
+                if texto:
+                    texto_limpo = texto.split(MARCADOR_IA)[0].strip()
+                    contexto_str += f"\n--- INICIO DA NOTA: {nome_nota} ---\n{texto_limpo}\n--- FIM DA NOTA ---\n"
+                    self.notas_contexto.append({
+                        "nome": nome_nota,
+                        "caminho": caminho_real
+                    })
+        else:
+            contexto_str = "Nenhuma nota encontrada no cofre sobre este tópico específico."
 
-                self.notas_contexto.append({
-                    "nome": nome_nota,
-                    "caminho": caminho_real
-                })
+        # 3. O Prompt Dinâmico
+        if modo_estrito:
+            temperatura = 0.2
+            prompt_sistema = """Voce e o Wikisidian, um assistente pessoal.
+            REGRAS OBRIGATORIAS:
+            1. Responda APENAS com base no CONTEXTO fornecido.
+            2. Se a informacao nao estiver presente nas notas fornecidas, responda EXATAMENTE: "Nao encontrei informacoes sobre isso nas suas anotacoes."
+            3. Nao utilize nenhum conhecimento externo.
+            Ao final da sua resposta, adicione uma secao chamada 'Fontes Utilizadas:' e liste as notas."""
+        else:
+            temperatura = 0.6 # Mais alta para permitir criatividade e inferências
+            prompt_sistema = """Você é o Wikisidian, um assistente de conhecimento estilo NotebookLM.
+            REGRAS OBRIGATORIAS:
+            1. Você receberá um CONTEXTO com as notas do usuário. Priorize sempre essas informações.
+            2. Se a resposta completa ou parcial NÃO estiver no contexto, você DEVE usar o seu conhecimento externo para expandir a resposta, conectar conceitos ou preencher lacunas.
+            3. TRANSPARÊNCIA: Se utilizar conhecimento externo, avise claramente no meio do texto (ex: "Expandindo com conhecimentos gerais..." ou "Embora não esteja detalhado nas suas notas...").
+            4. Seja inteligente com siglas: se o usuário perguntar de "RTOS" e o contexto falar de "Sistema Operacional de Tempo Real", faça a correlação.
+            5. Ao final da sua resposta, adicione uma seção chamada 'Notas Relacionadas:' e liste os nomes das notas do contexto que tangenciam o assunto."""
 
-        # 3. O Prompt Estruturado
-        prompt_sistema = """Voce e o Wikisidian, um assistente pessoal.
-        REGRAS OBRIGATORIAS:
-        1. Responda APENAS com base no CONTEXTO fornecido.
-        2. Se a informacao nao estiver presente nas notas fornecidas, responda EXATAMENTE: "Nao encontrei informacoes sobre isso nas suas anotacoes."
-        3. Nao utilize nenhum conhecimento externo, mesmo que voce saiba a resposta.
-        4. Se o contexto for irrelevante para a pergunta, diga que nao possui informacoes sobre o tema.
-        Ao final da sua resposta, adicione uma secao chamada 'Fontes Utilizadas:' e liste as notas."""
-        
-        prompt_usuario = f"""CONTEXTO (Notas do usuario):
-        {contexto_str}
+        prompt_usuario = f"""CONTEXTO (Notas do usuario):\n{contexto_str}\n\nPERGUNTA DO USUARIO: {pergunta_usuario}\n"""
 
-PERGUNTA DO USUARIO: {pergunta_usuario}
-"""
-
-        # 4. A Chamada a IA
-        print("Wikisidian a processar a sua pergunta...")
+        # 4. A Chamada à IA
+        print(f"Wikisidian a processar a pergunta (Estrito: {modo_estrito})...")
         try:
             resposta = completion(
                 model=self.modelo,
@@ -101,11 +97,10 @@ PERGUNTA DO USUARIO: {pergunta_usuario}
                     {"role": "system", "content": prompt_sistema},
                     {"role": "user", "content": prompt_usuario}
                 ],
-                temperature=0.3,
-                stream=True # 1. Habilita o streaming no LiteLLM
+                temperature=temperatura,
+                stream=True 
             )
             
-            # 2. Devolvemos a resposta palavra por palavra usando yield
             for pedaco in resposta:
                 conteudo = pedaco.choices[0].delta.content
                 if conteudo:
