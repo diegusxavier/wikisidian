@@ -63,38 +63,55 @@ with st.sidebar:
 
     # --- BLOCO 2: PASTAS IGNORADAS ---
     # st.expander cria um "Toggle" expansível. Tudo dentro do 'with' fica oculto até clicar.
-    with st.expander("🚫 Pastas Ignoradas"):
-        st.write("Selecione as pastas que a IA **NÃO** deve ler:")
-        
-        lista_atual = CONFIG_ATUAL.get("ignored_folders", [".obsidian", "99 - TEMP"])
+    st.write("**🚫 Pastas Ignoradas:**")
+    
+    lista_atual = CONFIG_ATUAL.get("ignored_folders", [".obsidian", "99 - TEMP"])
+    
+    if VAULT_PATH_DINAMICO and VAULT_PATH_DINAMICO.exists():
+        st.write("Marque as pastas para a IA ignorar:")
         novas_ignoradas = []
         
-        if VAULT_PATH_DINAMICO and VAULT_PATH_DINAMICO.exists():
-            # 1. Lê todas as pastas de primeiro nível dentro do cofre
-            pastas_no_cofre = [p.name for p in VAULT_PATH_DINAMICO.iterdir() if p.is_dir()]
-            
-            # 2. Junta as pastas encontradas com as que já estavam salvas (para garantir que pastas ocultas como .obsidian apareçam)
-            todas_as_pastas = sorted(list(set(pastas_no_cofre + lista_atual)))
-            
-            # 3. Cria um Checkbox para cada pasta dinamicamente
-            for pasta in todas_as_pastas:
-                # O parâmetro 'value' define se a caixinha já começa marcada
-                marcado = st.checkbox(f"📁 {pasta}", value=(pasta in lista_atual))
+        pastas_raiz = [p for p in VAULT_PATH_DINAMICO.iterdir() if p.is_dir()]
+        
+        # O container com altura fixa substitui a necessidade do expander global!
+        with st.container(height=450):
+            for pasta_raiz in sorted(pastas_raiz, key=lambda x: x.name.lower()):
+                nome_raiz = pasta_raiz.name
                 
-                # Se estiver marcado na tela, adicionamos à nossa lista temporária
-                if marcado:
-                    novas_ignoradas.append(pasta)
-            
-            # 4. O botão para confirmar e salvar no JSON
-            if st.button("💾 Salvar Filtros"):
-                CONFIG_ATUAL["ignored_folders"] = novas_ignoradas
-                salvar_configuracoes(CONFIG_ATUAL)
+                # Checkbox da pasta MÃE
+                mae_marcada = nome_raiz in lista_atual
+                if st.checkbox(f"📁 **{nome_raiz}**", value=mae_marcada, key=f"chk_raiz_{nome_raiz}"):
+                    novas_ignoradas.append(nome_raiz)
+                    mae_marcada = True 
                 
-                st.success("Filtros atualizados!")
-                st.cache_resource.clear() # Limpa a IA
-                st.rerun()                # Recarrega a página
-        else:
-            st.info("Selecione um cofre primeiro para ver as pastas.")
+                subpastas = [p for p in pasta_raiz.rglob("*") if p.is_dir()]
+                
+                # Expander apenas para embutir as FILHAS
+                if subpastas:
+                    with st.expander(f"↳ Subpastas de {nome_raiz}"):
+                        for sub in sorted(subpastas, key=lambda x: str(x)):
+                            caminho_relativo = str(sub.relative_to(VAULT_PATH_DINAMICO)).replace("\\", "/")
+                            filha_marcada = mae_marcada or (caminho_relativo in lista_atual)
+                            
+                            cb_filha = st.checkbox(
+                                f"📂 {sub.name}", 
+                                value=filha_marcada, 
+                                disabled=mae_marcada, 
+                                key=f"chk_sub_{caminho_relativo}"
+                            )
+                            
+                            if cb_filha and not mae_marcada:
+                                novas_ignoradas.append(caminho_relativo)
+                                
+        if st.button("💾 Salvar Filtros", use_container_width=True):
+            CONFIG_ATUAL["ignored_folders"] = novas_ignoradas
+            salvar_configuracoes(CONFIG_ATUAL)
+            
+            st.success("Filtros atualizados!")
+            st.cache_resource.clear() 
+            st.rerun()                
+    else:
+        st.info("Selecione um cofre primeiro para ver as pastas.")
 
 # ==========================================
 # 3. ÁREA PRINCIPAL E INICIALIZAÇÃO
