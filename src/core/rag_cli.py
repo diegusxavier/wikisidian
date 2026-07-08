@@ -72,10 +72,10 @@ class WikisidianChat:
             historico_str = "HISTÓRICO RECENTE DA CONVERSA (Para contexto):\n"
             # Pegamos apenas as últimas 4 mensagens (2 interações) para poupar tokens
             for msg in historico[-4:]:
-                remetente = "Usuário" if msg["role"] == "user" else "Assistente"
+                remetente = "USUÁRIO" if msg["role"] == "user" else "ASSISTENTE"
                 # Removemos a lista de fontes do histórico para não poluir os tokens
                 conteudo = msg.get("content", "")
-                historico_str += f"{remetente}: {conteudo}\n"
+                historico_str += f"\n{remetente}: {conteudo}\n"
             historico_str += "\n"
 
         # 3. O Prompt Dinâmico
@@ -103,6 +103,12 @@ class WikisidianChat:
         # 4. A Chamada à IA
         print(f"Wikisidian a processar a pergunta (Estrito: {modo_estrito})...")
         try:
+            # --- DEBUG: Ver o que a IA recebe ---
+            print("\n" + "="*40)
+            print("CONTEXTO E HISTÓRICO ENVIADO PARA A IA:")
+            print(prompt_usuario) # O prompt_usuario já contém contexto + histórico
+            print("="*40 + "\n")
+
             resposta = completion(
                 model=self.modelo,
                 messages=[
