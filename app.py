@@ -71,7 +71,7 @@ with st.sidebar:
         st.write("Marque as pastas para a IA ignorar:")
         novas_ignoradas = []
         
-        pastas_raiz = [p for p in VAULT_PATH_DINAMICO.iterdir() if p.is_dir()]
+        pastas_raiz = [p for p in VAULT_PATH_DINAMICO.iterdir() if p.is_dir() and not p.name.startswith(".")]
         
         # O container com altura fixa substitui a necessidade do expander global!
         with st.container(height=450):

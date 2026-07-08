@@ -18,6 +18,10 @@ def get_all_md_files(vault_path: Path, pastas_ignoradas: list = None) -> list[Pa
     for file_path in vault_path.rglob("*.md"):
         is_ignored = False
         
+        # Se qualquer parte do caminho começar com "." (ex: .obsidian, .trash), ignora direto
+        if any(part.startswith(".") for part in file_path.parts):
+            continue
+
         # Descobre qual é o caminho do arquivo "por dentro" do cofre
         # Ex: Se o cofre é C:/Obsidian e o ficheiro é C:/Obsidian/Faculdade/Nota.md
         # O rel_path será apenas 'Faculdade/Nota.md'
