@@ -67,31 +67,46 @@ class HybridRagEngine:
             res_obsidian = self.db_obsidian.find_similar(
                 text=pergunta_usuario,
                 top_k=top_k
-    )
+            )
             
             if res_obsidian['ids'] and res_obsidian['ids'][0]:
                 encontrou_algo = True
                 contexto_str += "=== NOTAS DO OBSIDIAN ===\n"
                 
-                # O pulo do gato: desempacotar o ID (que é o nome da nota) junto com doc e meta
                 ids_obsidian = res_obsidian['ids'][0]
-                docs_obsidian = res_obsidian['documents'][0]
                 metas_obsidian = res_obsidian['metadatas'][0]
                 
-                # Certifique-se de ter uma lista para guardar as notas usadas no pdf_rag_cli.py
-                # Se ela não existir no construtor (__init__), adicione `self.notas_contexto_hibrido = []`
-                self.notas_contexto_hibrido = [] 
-
-                for doc, meta, nome_nota in zip(docs_obsidian, metas_obsidian, ids_obsidian):
-                    caminho_real = meta.get('path', '')
+                self.notas_contexto_hibrido = []
+                notas_vistas = set() # Cria um "filtro" para não repetir a mesma nota
+                
+                from pathlib import Path # Garante que temos a ferramenta de caminhos
+                
+                # Ignoramos o 'doc' do banco e focamos apenas no metadado
+                for meta, id_nota in zip(metas_obsidian, ids_obsidian):
+                    caminho_real = meta.get('path', meta.get('source', ''))
                     
-                    contexto_str += f"[NOTA OBSIDIAN: {nome_nota}]\n{doc}\n\n"
-                    
-                    # Guardamos a nota para devolver à interface (app.py)
-                    self.notas_contexto_hibrido.append({
-                        "nome": nome_nota,
-                        "caminho": caminho_real
-                    })
+                    # Se achou um caminho válido e essa nota ainda não foi processada
+                    if caminho_real and caminho_real not in notas_vistas:
+                        notas_vistas.add(caminho_real)
+                        
+                        nome_real = Path(caminho_real).stem # Pega só o nome do arquivo (sem o .md e sem chunk)
+                        
+                        # Vai até o disco e lê a nota inteira
+                        try:
+                            with open(caminho_real, 'r', encoding='utf-8') as f:
+                                texto_completo = f.read()
+                                # Opcional: Se houver links da IA no fim, podemos limpar
+                                texto_limpo = texto_completo.split("---")[0].strip() if "---" in texto_completo else texto_completo
+                        except Exception:
+                            texto_limpo = "(Erro ao carregar o conteúdo da nota)"
+                        
+                        contexto_str += f"\n--- INÍCIO DA NOTA: {nome_real} ---\n{texto_limpo}\n--- FIM DA NOTA ---\n"
+                        
+                        # Salva o nome bonito para o botão no app.py
+                        self.notas_contexto_hibrido.append({
+                            "nome": nome_real,
+                            "caminho": caminho_real
+                        })
         # ==========================================
         # 3. VERIFICAÇÃO DE DADOS
         # ==========================================

@@ -503,7 +503,7 @@ with aba_chat_livros:
             
             # Caixa estilizada para mostrar o chunk exato que a IA leu
             with st.container(height=550):
-                st.info(fonte_atual["texto"])
+                st.markdown(fonte_atual["texto"])
         else:
             st.info("👈 Clique num botão de fonte gerado pela IA no chat para ler o trecho exato do livro do qual a informação foi extraída.")
 
