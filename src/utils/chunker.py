@@ -122,7 +122,7 @@ def embed_resumo_global(nome_livro: str, texto_resumo: str):
     metadados = {
         "nome": nome_livro,
         "is_resumo_global": "true", # Etiqueta invisível essencial
-        "path": f"books_data/summaries/{nome_livro}_resumo.txt"
+        "path": f"books_data/summaries/RESUMO_{nome_livro}.txt"
     }
     
     # Adicionamos ao banco como se fosse um chunk normal, mas ele é o "Mapa"

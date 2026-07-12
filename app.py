@@ -172,36 +172,68 @@ with st.sidebar:
             st.info("Selecione um cofre primeiro.")
 
 
-    # --- BLOCO 4: SELEÇÃO DE LIVROS (NOVO) ---
+    # --- BLOCO 4: SELEÇÃO DE LIVROS (OTIMIZADO) ---
     if "livros_selecionados" not in st.session_state:
         st.session_state.livros_selecionados = []
 
-    with st.expander("📚 Filtro de Livros", expanded=False):
-        st.write("Marque os livros que a IA deve consultar:")
+    with st.expander("📚 Filtro de Livros", expanded=True): # Deixamos expandido para facilitar visualização
+        st.write("Selecione os livros para consulta:")
         pasta_json = Path("books_data/extracted_texts")
-        
-        # Cria a pasta caso não exista
         pasta_json.mkdir(parents=True, exist_ok=True)
         
-        # Pega todos os arquivos JSON (Livros já processados)
+        # Coleta os livros disponíveis em tempo real
         livros_processados = [f.stem for f in pasta_json.glob("*.json")]
         
         if not livros_processados:
             st.info("Nenhum livro processado ainda.")
+            st.session_state.livros_selecionados = []
         else:
             selecionados_temp = []
-            with st.container(height=200):
-                for livro in livros_processados:
-                    # Por padrão, deixamos todos marcados. 
-                    if st.checkbox(livro, value=True, key=f"chk_livro_{livro}"):
-                        selecionados_temp.append(livro)
             
+            # Renderização de uma tabela visual com Checkbox + Botão de Excluir
+            with st.container(height=250):
+                for livro in sorted(livros_processados, key=lambda x: x.lower()):
+                    # Criamos duas colunas na interface lateral: 80% para o Checkbox, 20% para o lixo
+                    col_chk, col_btn = st.columns([4, 1])
+                    
+                    with col_chk:
+                        # 🔎 MUDANÇA: 'value=False' garante que todos iniciam DESMARCADOS por padrão
+                        if st.checkbox(livro, value=False, key=f"chk_livro_{livro}"):
+                            selecionados_temp.append(livro)
+                            
+                    with col_btn:
+                        # Botão vermelho com ícone de lixeira
+                        if st.button("🗑️", key=f"btn_del_file_{livro}", help=f"Excluir permanentemente {livro}"):
+                            # Caminhos de todas as três representações do livro no sistema
+                            caminho_pdf = Path(f"books_data/raw_pdfs/{livro}.pdf")
+                            caminho_json = Path(f"books_data/extracted_texts/{livro}.json")
+                            caminho_txt = Path(f"books_data/summaries/RESUMO_{livro}.txt")
+                            
+                            # 1. Remove os arquivos físicos do HD com segurança
+                            for arquivo_físico in [caminho_pdf, caminho_json, caminho_txt]:
+                                if arquivo_físico.exists():
+                                    arquivo_físico.unlink()
+                                    
+                            # 2. Remove os registros do banco vetorial ChromaDB para não poluir buscas futuros
+                            try:
+                                from src.core.embedder import VectorStore
+                                db_pdf = VectorStore(collection_name="pdf_books")
+                                # Remove tanto os chunks do livro quanto o chunk do resumo global
+                                id_resumo = f"{livro}_RESUMO_GLOBAL"
+                                db_pdf.collection.delete(where={"nome": livro}) # Remove chunks normais
+                                db_pdf.collection.delete(ids=[id_resumo])       # Remove resumo global
+                            except Exception:
+                                pass # Proteção caso a coleção esteja vazia ou inexistente
+                                
+                            st.toast(f"Livro '{livro}' excluído com sucesso!")
+                            st.rerun() # Atualiza a interface instantaneamente limpando o livro deletado
+                            
             st.session_state.livros_selecionados = selecionados_temp
             if not selecionados_temp:
                 st.warning("⚠️ Nenhum livro marcado. A IA não terá base para responder.")
 
 
-    # --- BLOCO 5: IMPORTAÇÃO E PROCESSAMENTO DE PDFs ---
+    # --- BLOCO 5: IMPORTAÇÃO E PROCESSAMENTO DE PDFs (COM AUTO-REFRESH) ---
     with st.expander("📥 Importar Novos PDFs", expanded=False):
         arquivos_pdf = st.file_uploader("Arraste seus PDFs aqui", type=["pdf"], accept_multiple_files=True)
         
@@ -214,29 +246,25 @@ with st.sidebar:
             
             for i, arquivo in enumerate(arquivos_pdf):
                 caminho_salvar = pasta_raw / arquivo.name
-                nome_livro = arquivo.name.replace(".pdf", "") # Nome limpo
+                nome_livro = arquivo.name.replace(".pdf", "")
                 
                 texto_progresso.text(f"Salvando: {arquivo.name}")
                 with open(caminho_salvar, "wb") as f:
                     f.write(arquivo.getbuffer())
                 
                 try:
-                    # 1. Extração estrutural do PDF -> JSON
                     texto_progresso.text(f"Extraindo texto: {arquivo.name}")
                     process_pdf_to_json(caminho_salvar)
                     
-                    # 2. Vetorização Padrão (A "Lupa")
                     nome_json = f"{nome_livro}.json"
                     caminho_json = Path(f"books_data/extracted_texts/{nome_json}")
                     
                     texto_progresso.text(f"Vetorizando chunks: {nome_json}")
                     chunk_and_embed_book(nome_json)
                     
-                    # 3. NOVO: Gerar o Resumo Global (O "Mapa")
                     texto_progresso.text(f"Gerando Resumo Global com IA: {nome_livro}...")
                     resumo_texto = gerar_e_salvar_resumo(nome_livro, caminho_json)
                     
-                    # 4. NOVO: Injetar o Resumo no Banco
                     embed_resumo_global(nome_livro, resumo_texto)
                     
                 except Exception as e:
@@ -246,6 +274,11 @@ with st.sidebar:
                 
             texto_progresso.success("Todos os PDFs foram processados e resumidos!")
             st.balloons()
+            
+            # 💡 O SEGREDO AQUI: Força o Streamlit a recarregar o script do zero imediatamente.
+            # Ao fazer isso, o Bloco 4 executa novamente, lê a pasta de JSONs atualizada,
+            # e o livro novo aparece no filtro na mesma hora, sem precisar de F5 manual!
+            st.rerun()
 # ==========================================
 # 3. ÁREA PRINCIPAL E INICIALIZAÇÃO
 # ==========================================

@@ -11,7 +11,7 @@ def gerar_e_salvar_resumo(nome_livro: str, caminho_json_extraido: Path) -> str:
     """
     pasta_resumos = Path("books_data/summaries")
     pasta_resumos.mkdir(parents=True, exist_ok=True)
-    caminho_resumo = pasta_resumos / f"{nome_livro}_resumo.txt"
+    caminho_resumo = pasta_resumos / f"RESUMO_{nome_livro}.txt"
 
     if caminho_resumo.exists():
         with open(caminho_resumo, "r", encoding="utf-8") as f:
