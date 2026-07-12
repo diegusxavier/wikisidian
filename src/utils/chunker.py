@@ -105,6 +105,33 @@ def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str):
 
     return ids, chunks, metadados
 
+
+def embed_resumo_global(nome_livro: str, texto_resumo: str):
+    """
+    Injeta o resumo global no banco de vetores com metadados especiais 
+    para que o Roteador possa encontrá-lo facilmente depois.
+    """
+    from src.core.embedder import VectorStore # Ajuste o import se necessário
+    
+    vetor_db_livros = VectorStore(collection_name="pdf_books")
+    
+    # ID único e rastreável para o resumo global deste livro
+    id_resumo = f"{nome_livro}_RESUMO_GLOBAL"
+    
+    # O PULO DO GATO: Metadado especial para o Roteador
+    metadados = {
+        "nome": nome_livro,
+        "is_resumo_global": "true", # Etiqueta invisível essencial
+        "path": f"books_data/summaries/{nome_livro}_resumo.txt"
+    }
+    
+    # Adicionamos ao banco como se fosse um chunk normal, mas ele é o "Mapa"
+    vetor_db_livros.add_chunks(
+        ids=[id_resumo],
+        contents=[texto_resumo],
+        metadatas=[metadados]
+    )
+
 # ==========================================
 # BLOCO DE TESTE RÁPIDO
 # ==========================================

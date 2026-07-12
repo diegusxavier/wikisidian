@@ -19,6 +19,8 @@ from src.core.pdf_rag_cli import HybridRagEngine
 from src.utils.chunker import chunk_and_embed_book
 from src.utils.pdf_handler import process_pdf_to_json
 from src.utils.chunker import chunk_markdown_file
+from src.utils.summarizer import gerar_e_salvar_resumo
+from src.utils.chunker import embed_resumo_global
 
 st.set_page_config(page_title="Wikisidian", page_icon="🧠", layout="wide")
 
@@ -194,7 +196,7 @@ with st.sidebar:
                 st.warning("⚠️ Nenhum livro marcado. A IA não terá base para responder.")
 
 
-    # --- BLOCO 5: IMPORTAÇÃO E PROCESSAMENTO DE PDFs (NOVO) ---
+    # --- BLOCO 5: IMPORTAÇÃO E PROCESSAMENTO DE PDFs ---
     with st.expander("📥 Importar Novos PDFs", expanded=False):
         arquivos_pdf = st.file_uploader("Arraste seus PDFs aqui", type=["pdf"], accept_multiple_files=True)
         
@@ -207,30 +209,37 @@ with st.sidebar:
             
             for i, arquivo in enumerate(arquivos_pdf):
                 caminho_salvar = pasta_raw / arquivo.name
-                texto_progresso.text(f"Salvando: {arquivo.name}")
+                nome_livro = arquivo.name.replace(".pdf", "") # Nome limpo
                 
-                # 1. Salva o PDF no disco local
+                texto_progresso.text(f"Salvando: {arquivo.name}")
                 with open(caminho_salvar, "wb") as f:
                     f.write(arquivo.getbuffer())
                 
                 try:
-                    # 2. Roda o Extrator (Transforma PDF em JSON)
+                    # 1. Extração estrutural do PDF -> JSON
                     texto_progresso.text(f"Extraindo texto: {arquivo.name}")
-                    # AQUI VOCÊ CHAMA A SUA FUNÇÃO DO pdf_handler.py
                     process_pdf_to_json(caminho_salvar)
                     
-                    # 3. Roda o Chunker (Transforma JSON em Vetor no Chroma)
-                    nome_json = arquivo.name.replace(".pdf", ".json")
-                    texto_progresso.text(f"Vetorizando: {nome_json}")
+                    # 2. Vetorização Padrão (A "Lupa")
+                    nome_json = f"{nome_livro}.json"
+                    caminho_json = Path(f"books_data/extracted_texts/{nome_json}")
+                    
+                    texto_progresso.text(f"Vetorizando chunks: {nome_json}")
                     chunk_and_embed_book(nome_json)
+                    
+                    # 3. NOVO: Gerar o Resumo Global (O "Mapa")
+                    texto_progresso.text(f"Gerando Resumo Global com IA: {nome_livro}...")
+                    resumo_texto = gerar_e_salvar_resumo(nome_livro, caminho_json)
+                    
+                    # 4. NOVO: Injetar o Resumo no Banco
+                    embed_resumo_global(nome_livro, resumo_texto)
                     
                 except Exception as e:
                     st.error(f"Erro no livro {arquivo.name}: {e}")
                     
-                # Atualiza a barrinha de progresso
                 progresso.progress((i + 1) / len(arquivos_pdf))
                 
-            texto_progresso.success("Todos os PDFs foram processados!")
+            texto_progresso.success("Todos os PDFs foram processados e resumidos!")
             st.balloons()
 # ==========================================
 # 3. ÁREA PRINCIPAL E INICIALIZAÇÃO
