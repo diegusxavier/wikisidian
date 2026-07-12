@@ -52,17 +52,33 @@ class WikisidianChat:
         self.notas_contexto = [] 
 
         if ids_encontrados:
-            for nome_nota, metadado in zip(ids_encontrados, metadados_encontrados):
+            notas_vistas = set() # Filtro para não repetir notas se 2 chunks da mesma nota forem chamados
+            
+            for id_chunk, metadado in zip(ids_encontrados, metadados_encontrados):
                 caminho_real = metadado.get('path', metadado.get('caminho', metadado.get('source', '')))
-                texto = self._obter_texto_da_nota(caminho_real)
                 
-                if texto:
-                    texto_limpo = texto.split(MARCADOR_IA)[0].strip()
-                    contexto_str += f"\n--- INICIO DA NOTA: {nome_nota} ---\n{texto_limpo}\n--- FIM DA NOTA ---\n"
-                    self.notas_contexto.append({
-                        "nome": nome_nota,
-                        "caminho": caminho_real
-                    })
+                # Resgata o nome limpo salvo no metadado. Se falhar, corta o '_chunk_' manualmente.
+                nome_limpo = metadado.get('nome', id_chunk.split('_chunk_')[0])
+                
+                # Verifica se o caminho existe e se ainda não processamos essa nota
+                if caminho_real and caminho_real not in notas_vistas:
+                    notas_vistas.add(caminho_real)
+                    
+                    texto = self._obter_texto_da_nota(caminho_real)
+                    
+                    if texto:
+                        # Mantendo a sua lógica original de limpeza
+                        try:
+                            texto_limpo = texto.split(MARCADOR_IA)[0].strip()
+                        except NameError:
+                            texto_limpo = texto.strip()
+                        
+                        contexto_str += f"\n--- INICIO DA NOTA: {nome_limpo} ---\n{texto_limpo}\n--- FIM DA NOTA ---\n"
+                        
+                        self.notas_contexto.append({
+                            "nome": nome_limpo,
+                            "caminho": caminho_real
+                        })
         else:
             contexto_str = "Nenhuma nota encontrada no cofre sobre este tópico específico."
 
