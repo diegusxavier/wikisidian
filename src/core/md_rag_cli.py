@@ -53,7 +53,7 @@ class WikisidianChat:
 
         if ids_encontrados:
             for nome_nota, metadado in zip(ids_encontrados, metadados_encontrados):
-                caminho_real = metadado.get('path', metadado.get('source', ''))
+                caminho_real = metadado.get('path', metadado.get('caminho', metadado.get('source', '')))
                 texto = self._obter_texto_da_nota(caminho_real)
                 
                 if texto:

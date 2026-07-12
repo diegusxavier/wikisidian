@@ -334,7 +334,7 @@ with aba_chat_obsidian:
                 st.markdown(msg["content"])
                 
                 if msg["role"] == "assistant" and "fontes" in msg and msg["fontes"]:
-                    with st.expander("📚 Ver notas originais"):
+                    with st.expander("📝Ver notas do Obsidian"):
                         for fonte in msg["fontes"]:
                             if st.button(f"📄 {fonte['nome']}", key=f"btn_{i}_{fonte['nome']}"):
                                 st.session_state.nota_visualizada = fonte['nome']
@@ -430,7 +430,7 @@ with aba_chat_livros:
                                 
                 # Renderiza botões para Notas do Obsidian (Modo Híbrido)
                 if msg["role"] == "assistant" and msg.get("notas_obsidian"):
-                    with st.expander("📝 Ver notas do Obsidian"):
+                    with st.expander("📝Ver notas do Obsidian"):
                         for k, nota in enumerate(msg["notas_obsidian"]):
                             if st.button(f"📄 {nota['nome']}", key=f"btn_hibrido_obs_{i}_{k}"):
                                 # Lê o arquivo da nota e envia para o visualizador da direita

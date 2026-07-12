@@ -62,43 +62,45 @@ def chunk_and_embed_book(json_filename: str):
 
 def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str):
     """
-    Fatia um arquivo Markdown respeitando seus cabeçalhos (#, ##, ###).
-    Retorna três listas: ids, chunks_de_texto, e metadados.
+    Fatia um arquivo Markdown por limite de caracteres (com overlap),
+    garantindo blocos de tamanho uniforme. Injeta o título do documento
+    no início de cada chunk para evitar a "perda de contexto" na vetorização.
     """
-    # 1. Divide por cabeçalhos (mantém a hierarquia do Obsidian)
-    headers_to_split_on = [
-        ("#", "Header 1"),
-        ("##", "Header 2"),
-        ("###", "Header 3"),
-    ]
-    markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
     
-    # Isso gera "Documentos" do Langchain onde o metadado diz de qual cabeçalho veio
-    md_header_splits = markdown_splitter.split_text(texto)
-
-    # 2. Proteção extra: Se uma seção (embaixo de um ##) for gigante, fatiamos por caracteres
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200)
-    splits_finais = text_splitter.split_documents(md_header_splits)
+    # 1. Configura o fatiador recursivo 
+    # (Ele tenta cortar primeiro em parágrafos duplos, depois linhas simples, depois espaços)
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1200, 
+        chunk_overlap=250, # Um overlap generoso garante que o fim de um conceito não seja cortado
+        separators=["\n\n", "\n", " ", ""] 
+    )
+    
+    # Gera uma lista com as strings de texto fatiadas
+    text_splits = text_splitter.split_text(texto)
 
     chunks = []
     metadados = []
     ids = []
+    
+    # Remove a extensão .md para ficar um título limpo no enriquecimento
+    titulo_limpo = nome_arquivo.replace(".md", "")
 
-    for i, split in enumerate(splits_finais):
-        chunks.append(split.page_content)
+    for i, texto_fatiado in enumerate(text_splits):
         
-        # O SEGREDO ESTÁ AQUI: Salvamos o caminho da nota original para o Streamlit poder ler a nota inteira depois!
+        # O PULO DO GATO (Enriquecimento): 
+        # Carimbamos o título dentro do próprio chunk para o ChromaDB não "esquecer" sobre o que é.
+        chunk_enriquecido = f"[Documento: {titulo_limpo}]\n{texto_fatiado}"
+        chunks.append(chunk_enriquecido)
+        
+        # O app.py precisa estritamente de 'nome' e 'caminho' para renderizar os botões
         meta = {
             "nome": nome_arquivo,
+            "path": str(caminho_completo),
             "caminho": str(caminho_completo)
         }
-        
-        # Adicionamos os cabeçalhos (se a IA achar algo no "## Júlio César", ela saberá o título da seção)
-        meta.update(split.metadata)
-        
         metadados.append(meta)
         
-        # Criamos um ID único para esse pedaço (Ex: Roma.md_chunk_0)
+        # ID único (Ex: Transformada_Laplace.md_chunk_0)
         ids.append(f"{nome_arquivo}_chunk_{i}")
 
     return ids, chunks, metadados

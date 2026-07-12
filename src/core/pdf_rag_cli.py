@@ -18,7 +18,7 @@ class HybridRagEngine:
         self, 
         pergunta_usuario: str, 
         book_titles: list = None,
-        top_k: int = 4, 
+        top_k: int = 6, 
         modo_estrito: bool = True,
         incluir_obsidian: bool = False,
         historico: list = None
@@ -83,7 +83,7 @@ class HybridRagEngine:
                 
                 # Ignoramos o 'doc' do banco e focamos apenas no metadado
                 for meta, id_nota in zip(metas_obsidian, ids_obsidian):
-                    caminho_real = meta.get('path', meta.get('source', ''))
+                    caminho_real = meta.get('path', meta.get('caminho', meta.get('source', '')))
                     
                     # Se achou um caminho válido e essa nota ainda não foi processada
                     if caminho_real and caminho_real not in notas_vistas:
