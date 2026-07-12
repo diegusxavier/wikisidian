@@ -65,18 +65,33 @@ class HybridRagEngine:
         # ==========================================
         if incluir_obsidian:
             res_obsidian = self.db_obsidian.find_similar(
-                text=pergunta_usuario, 
+                text=pergunta_usuario,
                 top_k=top_k
-            )
+    )
             
             if res_obsidian['ids'] and res_obsidian['ids'][0]:
                 encontrou_algo = True
                 contexto_str += "=== NOTAS DO OBSIDIAN ===\n"
-                for doc, meta in zip(res_obsidian['documents'][0], res_obsidian['metadatas'][0]):
-                    # Ajuste 'source' ou 'titulo' de acordo com o metadado que você usa nas notas
-                    nome_nota = meta.get('source', 'Nota Desconhecida') 
-                    contexto_str += f"[NOTA OBSIDIAN: {nome_nota}]\n{doc}\n\n"
+                
+                # O pulo do gato: desempacotar o ID (que é o nome da nota) junto com doc e meta
+                ids_obsidian = res_obsidian['ids'][0]
+                docs_obsidian = res_obsidian['documents'][0]
+                metas_obsidian = res_obsidian['metadatas'][0]
+                
+                # Certifique-se de ter uma lista para guardar as notas usadas no pdf_rag_cli.py
+                # Se ela não existir no construtor (__init__), adicione `self.notas_contexto_hibrido = []`
+                self.notas_contexto_hibrido = [] 
 
+                for doc, meta, nome_nota in zip(docs_obsidian, metas_obsidian, ids_obsidian):
+                    caminho_real = meta.get('path', '')
+                    
+                    contexto_str += f"[NOTA OBSIDIAN: {nome_nota}]\n{doc}\n\n"
+                    
+                    # Guardamos a nota para devolver à interface (app.py)
+                    self.notas_contexto_hibrido.append({
+                        "nome": nome_nota,
+                        "caminho": caminho_real
+                    })
         # ==========================================
         # 3. VERIFICAÇÃO DE DADOS
         # ==========================================
