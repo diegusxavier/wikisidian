@@ -52,12 +52,13 @@ def gerar_e_salvar_resumo(nome_livro: str, caminho_json_extraido: Path) -> str:
     - PARA LIVROS TÉCNICOS/ACADÊMICOS:
     1. Tema Central do Livro
     2. Principais Capítulos e Ideias
-    3. Conclusão e Relevância
+    3. Aplicações Práticas ou Exemplos
+    4. Conclusão e Relevância
 
     - PARA FICÇÃO:
     1. Resumo da Trama
     2. Personagens Principais
-    3. Desenvolvimento da história
+    3. Desenvolvimento da história em seus principais pontos e capítulos
     4. Conclusão, reflexão e Mensagem Final
     
     TEXTO PARA RESUMIR:
