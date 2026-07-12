@@ -1,72 +1,141 @@
+import os
+from dotenv import load_dotenv
+from litellm import completion
+from typing import Generator
 from src.core.embedder import VectorStore
-# IMPORTANTE: Importe aqui a biblioteca que você já usa para chamar o Gemini no seu app
-# Exemplo: import google.generativeai as genai 
 
-class PDFRagEngine:
+# Carrega as variaveis do arquivo .env
+load_dotenv()
+
+class HybridRagEngine:
     def __init__(self):
-        # Conecta exclusivamente na gaveta de livros
-        self.db = VectorStore(collection_name="pdf_books")
+        # Conecta nas duas gavetas
+        self.db_books = VectorStore(collection_name="pdf_books")
+        self.db_obsidian = VectorStore(collection_name="obsidian_notes") # Confirme se é este o nome da sua coleção de notas
+        self.modelo = os.getenv("LLM_MODEL", "gemini/gemini-3.1-flash-lite")
+
+    def query(
+        self, 
+        pergunta_usuario: str, 
+        book_title: str = None, 
+        top_k: int = 4, 
+        modo_estrito: bool = True,
+        incluir_obsidian: bool = False, # NOVO: Controle de injeção de notas
+        historico: list = None
+    ) -> Generator[str, None, None]:
         
-    def query_book(self, user_question: str, book_title: str = None, top_k: int = 4):
-        """
-        Busca a resposta da pergunta dentro de um livro específico ou em todos.
-        """
-        # 1. Configura o filtro de busca (Opcional, mas recomendado)
-        filtro = {"titulo": book_title} if book_title else None
-        
-        # 2. Busca os chunks mais relevantes no ChromaDB
-        resultados = self.db.find_similar(
-            text=user_question, 
+        contexto_str = ""
+        encontrou_algo = False
+
+        # ==========================================
+        # 1. BUSCA NOS LIVROS
+        # ==========================================
+        filtro_livro = {"titulo": book_title} if book_title else None
+        res_livros = self.db_books.find_similar(
+            text=pergunta_usuario, 
             top_k=top_k, 
-            where_filter=filtro
+            where_filter=filtro_livro
         )
+
+        if res_livros['ids'] and res_livros['ids'][0]:
+            encontrou_algo = True
+            contexto_str += "=== TRECHOS DE LIVROS ===\n"
+            for doc, meta in zip(res_livros['documents'][0], res_livros['metadatas'][0]):
+                contexto_str += f"[LIVRO: {meta.get('titulo', 'Desconhecido')} | PÁGINA: {meta.get('pagina', '?')}]\n{doc}\n\n"
+
+        # ==========================================
+        # 2. BUSCA NO OBSIDIAN (Se ativado)
+        # ==========================================
+        if incluir_obsidian:
+            res_obsidian = self.db_obsidian.find_similar(
+                text=pergunta_usuario, 
+                top_k=top_k
+            )
+            
+            if res_obsidian['ids'] and res_obsidian['ids'][0]:
+                encontrou_algo = True
+                contexto_str += "=== NOTAS DO OBSIDIAN ===\n"
+                for doc, meta in zip(res_obsidian['documents'][0], res_obsidian['metadatas'][0]):
+                    # Ajuste 'source' ou 'titulo' de acordo com o metadado que você usa nas notas
+                    nome_nota = meta.get('source', 'Nota Desconhecida') 
+                    contexto_str += f"[NOTA OBSIDIAN: {nome_nota}]\n{doc}\n\n"
+
+        # ==========================================
+        # 3. VERIFICAÇÃO DE DADOS
+        # ==========================================
+        if not encontrou_algo and modo_estrito:
+            yield "Desculpe, não encontrei nenhuma informação sobre esse assunto nos livros ou notas selecionadas."
+            return
+        elif not encontrou_algo:
+            contexto_str = "Nenhum contexto encontrado no banco de dados local."
+
+        # ==========================================
+        # 4. TRATAMENTO DO HISTÓRICO
+        # ==========================================
+        historico_str = ""
+        if historico:
+            historico_str = "HISTÓRICO RECENTE DA CONVERSA:\n"
+            for msg in historico[-4:]:
+                remetente = "USUÁRIO" if msg["role"] == "user" else "ASSISTENTE"
+                historico_str += f"{remetente}: {msg.get('content', '')}\n"
+            historico_str += "\n"
+
+        # ==========================================
+        # 5. CONFIGURAÇÃO DO PROMPT E LLM
+        # ==========================================
+        if modo_estrito:
+            temperatura = 0.2
+            prompt_sistema = """Você é um assistente de pesquisa acadêmica rigoroso.
+            REGRAS OBRIGATÓRIAS:
+            1. Responda APENAS com base nos TRECHOS FORNECIDOS no contexto (Livros ou Notas).
+            2. Ao usar livros, adicione a citação no formato: (Nome do Livro, p. X).
+            3. Ao usar notas, adicione a citação no formato: (Nota: Nome da Nota).
+            4. Se a informação não estiver presente nos trechos, diga: "Os textos fornecidos não abordam este assunto".
+            5. Não invente informações."""
+        else:
+            temperatura = 0.6 
+            prompt_sistema = """Você é um assistente de pesquisa avançado.
+            REGRAS OBRIGATÓRIAS:
+            1. Priorize responder com base nos TRECHOS FORNECIDOS (Livros e Notas).
+            2. CITE SUAS FONTES: Tudo extraído do contexto deve ser citado como (Nome do Livro, p. X) ou (Nota: Nome da Nota).
+            3. CONHECIMENTO GERAL: Se a resposta não estiver nos trechos, você PODE usar seu conhecimento geral para ajudar o usuário, mas DEVE avisar explicitamente (ex: "Embora meus arquivos locais não mencionem isso...").
+            4. Não invente citações, páginas ou referências bibliográficas falsas."""
+
+        prompt_usuario = f"CONTEXTO RECUPERADO:\n{contexto_str}\n\n{historico_str}PERGUNTA: {pergunta_usuario}\n"
+
+        print(f"Processando pergunta (Livro: {book_title or 'Todos'} | Obsidian: {incluir_obsidian} | Estrito: {modo_estrito})...")
         
-        if not resultados['documents'][0]:
-            return "Não encontrei informações relevantes nos livros para responder a essa pergunta."
-
-        # 3. Monta o Contexto Acadêmico (A Mágica da Citação)
-        contexto_formatado = ""
-        documentos = resultados['documents'][0]
-        metadados = resultados['metadatas'][0]
-
-        for doc, meta in zip(documentos, metadados):
-            # Injeta a referência exata antes de cada trecho para a IA ler
-            contexto_formatado += f"[Fonte: {meta['titulo']} | Página: {meta['pagina']}]\n{doc}\n\n"
-
-        # 4. O System Prompt (Instruções de Ouro)
-        system_prompt = f"""
-Você é um assistente de pesquisa acadêmica rigoroso. 
-Responda à pergunta do usuário baseando-se EXCLUSIVAMENTE nos trechos fornecidos abaixo.
-
-REGRAS OBRIGATÓRIAS DE CITAÇÃO:
-- Ao final de toda frase ou afirmação que você fizer, você DEVE citar a fonte no formato: (Nome do Livro, p. X).
-- Se a resposta não estiver nos trechos, diga "O texto fornecido não aborda este assunto". 
-- Não invente informações e não use seu conhecimento prévio.
-
-TRECHOS EXTRAÍDOS:
-{contexto_formatado}
-"""
-        
-        print("\n--- CONTEXTO ENVIADO PARA A IA ---")
-        print(contexto_formatado)
-        print("----------------------------------\n")
-
-        # 5. Chamada para a LLM (Substitua pela sua chamada atual do Gemini)
-        # Exemplo pseudo-código (adapte para o seu LiteLLM ou GenAI):
-        # response = genai.generate_text(prompt=system_prompt + "\nPergunta: " + user_question)
-        # return response.text
-        
-        return "Implementar chamada do Gemini aqui usando a variável 'system_prompt' e 'user_question'."
+        try:
+            resposta = completion(
+                model=self.modelo,
+                messages=[
+                    {"role": "system", "content": prompt_sistema},
+                    {"role": "user", "content": prompt_usuario}
+                ],
+                temperature=temperatura,
+                stream=True 
+            )
+            
+            for pedaco in resposta:
+                conteudo = pedaco.choices[0].delta.content
+                if conteudo:
+                    yield conteudo
+                    
+        except Exception as e:
+            yield f"Erro ao comunicar com a IA: {e}"
 
 # ==========================================
-# BLOCO DE TESTE RÁPIDO
+# BLOCO DE TESTE
 # ==========================================
 if __name__ == "__main__":
-    engine = PDFRagEngine()
+    engine = HybridRagEngine()
     
-    # Teste de busca (substitua pelo nome de um livro que você já extraiu na Etapa C)
-    pergunta = "Qual é o assunto principal?"
-    nome_do_livro = "meu_livro_teste" # Opcional: coloque None para buscar em todos
+    pergunta = "Qual é a principal teoria apresentada?"
     
-    resposta = engine.query_book(pergunta, book_title=nome_do_livro)
-    print(f"Resposta da IA:\n{resposta}")
+    print("\n--- TESTE: MODO ESTRITO (SÓ LIVROS) ---")
+    for chunk in engine.query(pergunta, modo_estrito=True, incluir_obsidian=False):
+        print(chunk, end="", flush=True)
+        
+    print("\n\n--- TESTE: MODO HÍBRIDO (LIVROS + OBSIDIAN + IA GERAL) ---")
+    for chunk in engine.query(pergunta, modo_estrito=False, incluir_obsidian=True):
+        print(chunk, end="", flush=True)

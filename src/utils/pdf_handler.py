@@ -72,7 +72,7 @@ def process_pdf_to_json(pdf_path: Path) -> Path:
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(livro_dados, f, ensure_ascii=False, indent=4)
         
-    print(f"✔️ Extração concluída! Metadados guardados em: {json_path}")
+    print(f"Extração concluída! Metadados guardados em: {json_path}")
     return json_path
 
 # ==========================================
@@ -85,15 +85,15 @@ if __name__ == "__main__":
     pdfs_encontrados = list(RAW_PDFS_DIR.glob("*.pdf"))
     
     if not pdfs_encontrados:
-        print(f"⚠️ Nenhum PDF encontrado para testar.")
+        print(f"Nenhum PDF encontrado para testar.")
         print(f"Por favor, coloque pelo menos um arquivo .pdf na pasta:\n{RAW_PDFS_DIR}")
     else:
         pdf_teste = pdfs_encontrados[0]
-        print(f"🧪 Iniciando teste com o arquivo: {pdf_teste.name}")
+        print(f"Iniciando teste com o arquivo: {pdf_teste.name}")
         
         try:
             caminho_json = process_pdf_to_json(pdf_teste)
-            print(f"✅ Teste concluído com sucesso!")
+            print(f"Teste concluído com sucesso!")
             print(f"Abra o arquivo gerado para verificar se o texto foi extraído corretamente:\n{caminho_json}")
         except Exception as e:
-            print(f"❌ Ocorreu um erro durante o processamento:\n{e}")
+            print(f"Ocorreu um erro durante o processamento:\n{e}")
