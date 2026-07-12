@@ -355,6 +355,7 @@ with aba_chat_obsidian:
                         historico=st.session_state.mensagens[:-1] 
                     )
                 )
+                
                     
             st.session_state.mensagens.append({
                 "role": "assistant", 
@@ -412,26 +413,50 @@ with aba_chat_livros:
     col_chat_livros, col_nota_livros = st.columns([6, 4], gap="large")
 
     # --- LADO ESQUERDO: CHAT DOS LIVROS ---
+# --- LADO ESQUERDO: CHAT DOS LIVROS ---
     with col_chat_livros:
+        # 1. RENDERIZA O HISTÓRICO NA TELA
         for i, msg in enumerate(st.session_state.book_messages):
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
                 
-                # Renderiza os botões de fonte se a IA tiver usado algum chunk
-                if msg["role"] == "assistant" and "fontes" in msg and msg["fontes"]:
+                # Renderiza botões para Trechos de Livros
+                if msg["role"] == "assistant" and msg.get("fontes"):
                     with st.expander("📚 Ver trechos utilizados"):
                         for j, fonte in enumerate(msg["fontes"]):
-                            # Clicar neste botão muda o chunk que será mostrado na direita
                             if st.button(f"🔖 {fonte['nome']}", key=f"btn_livro_chunk_{i}_{j}"):
                                 st.session_state.chunk_visualizado = fonte
                                 st.rerun()
+                                
+                # Renderiza botões para Notas do Obsidian (Modo Híbrido)
+                if msg["role"] == "assistant" and msg.get("notas_obsidian"):
+                    with st.expander("📝 Ver notas do Obsidian"):
+                        for k, nota in enumerate(msg["notas_obsidian"]):
+                            if st.button(f"📄 {nota['nome']}", key=f"btn_hibrido_obs_{i}_{k}"):
+                                # Lê o arquivo da nota e envia para o visualizador da direita
+                                caminho_arquivo = Path(nota['caminho'])
+                                if caminho_arquivo.exists():
+                                    conteudo = read_file_content(caminho_arquivo)
+                                    # Emprestamos a variável 'chunk_visualizado' para exibir a nota na tela dividida
+                                    st.session_state.chunk_visualizado = {
+                                        "nome": f"Nota Obsidian: {nota['nome']}",
+                                        "texto": conteudo
+                                    }
+                                else:
+                                    st.session_state.chunk_visualizado = {
+                                        "nome": "⚠️ Erro",
+                                        "texto": "O arquivo desta nota não foi encontrado no seu disco."
+                                    }
+                                st.rerun()
 
+        # 2. CAIXA DE INPUT DO USUÁRIO
         if prompt_livro := st.chat_input("Faça uma pergunta sobre a biblioteca de PDFs...", key="input_livro"):
             with st.chat_message("user"):
                 st.markdown(prompt_livro)
             
             st.session_state.book_messages.append({"role": "user", "content": prompt_livro})
 
+            # 3. PROCESSAMENTO DA RESPOSTA DA IA
             with st.chat_message("assistant"):
                 engine_livros = HybridRagEngine()
                 historico_para_ia = st.session_state.book_messages[-5:-1] if len(st.session_state.book_messages) > 1 else None
@@ -446,17 +471,20 @@ with aba_chat_livros:
                     )
                 )
 
+            # Extração segura: Se não tiver notas híbridas, retorna uma lista vazia []
+            notas_hibridas = getattr(engine_livros, 'notas_contexto_hibrido', [])
+
             # Salva no histórico local da sessão
             st.session_state.book_messages.append({
                 "role": "assistant", 
                 "content": resposta_completa,
-                "fontes": engine_livros.fontes_utilizadas # Guardamos os chunks recebidos do motor
+                "fontes": engine_livros.fontes_utilizadas,
+                "notas_obsidian": notas_hibridas  # <--- Salva as notas na memória para renderizar os botões
             })
 
-            # SALVAMENTO EM JSON (Se não for temporário)
+            # 4. SALVAMENTO EM JSON (Se não for temporário)
             if not conversa_temp_livro:
                 if not st.session_state.conv_id_livros:
-                    # Usamos o prefixo 'livro_' para não misturar com os IDs do Obsidian
                     st.session_state.conv_id_livros = "livro_" + str(uuid.uuid4())[:8]
                 
                 titulo_conversa = "[PDF] " + st.session_state.book_messages[0]["content"][:35] + "..."
