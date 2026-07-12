@@ -3,39 +3,30 @@ from chromadb.utils import embedding_functions
 from pathlib import Path
 
 class VectorStore:
-    def __init__(self, db_path: str = "vector_store"):
-        # 1. CRIANDO O BANCO LOCAL
-        # Inicializa o ChromaDB dizendo para ele salvar as matrizes numéricas
-        # fisicamente na pasta "vector_store" do seu projeto. Assim o cálculo não é perdido.
+    # ALTERAÇÃO 1: Adicionamos 'collection_name' aqui, mantendo 'obsidian_notes' como padrão
+    def __init__(self, db_path: str = "vector_store", collection_name: str = "obsidian_notes"):
         self.client = chromadb.PersistentClient(path=db_path)
         
-        # 2. CARREGANDO A IA DE EMBEDDING
-        # Instancia a função de embedding do SentenceTransformers.
-        # Na primeira vez que você rodar o programa, ele vai baixar os pesos do 
-        # modelo 'paraphrase-multilingual-MiniLM...' para a sua máquina.
         self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name="paraphrase-multilingual-MiniLM-L12-v2"
         )
         
-        # 3. CRIANDO O ESPAÇO N-DIMENSIONAL
-        # O ChromaDB organiza os dados em "coleções". 
-        # Aqui, estamos definindo a métrica matemática 'cosine' (cosseno) 
-        # para que ele saiba como calcular a distância angular entre suas notas.
+        # ALTERAÇÃO 2: Agora o nome da coleção é dinâmico. 
+        # Assim você pode criar VectorStore(collection_name="pdf_books")
         self.collection = self.client.get_or_create_collection(
-            name="obsidian_notes",
+            name=collection_name,
             embedding_function=self.embedding_fn,
             metadata={"hnsw:space": "cosine"}
         )
 
+    # MANTER INTACTO: Este é o seu método antigo, que serve para as notas do Obsidian
     def add_notes(self, files: list[Path], contents: list[str]):
-        ids = [str(f.name) for f in files] 
-        
-        # 4. A VETORIZAÇÃO AUTOMÁTICA
         # Quando passamos o 'contents' (que é uma lista de strings gigantes
         # com os textos das suas notas), o ChromaDB pega aquele modelo MiniLM
-        # configurado na inicialização, passa texto por texto dentro da IA, 
+        # configurado na inicialização, passa texto por texto dentro da IA,
         # transforma tudo em matrizes de 384 dimensões e armazena na memória do banco.
         # Ele associa cada vetor ao seu 'id' (nome do arquivo) e aos seus metadados (caminho).
+        ids = [str(f.name) for f in files] 
         self.collection.upsert(
             documents=contents,
             ids=ids,
@@ -43,30 +34,43 @@ class VectorStore:
         )
         print(f"{len(files)} notas processadas e salvas no banco vetorial!")
 
-    def find_similar(self, text: str, top_k: int = 3):
-        # 5. A BUSCA SEMÂNTICA
-        # Quando você quiser encontrar notas parecidas com "text", o ChromaDB
-        # primeiro vetoriza esse "text" em tempo real usando o MiniLM.
-        # Depois, ele varre as matrizes que já estão salvas e devolve as 
-        # 'top_k' notas que têm o menor ângulo (maior similaridade de cosseno).
-        results = self.collection.query(
-            query_texts=[text],
-            n_results=top_k
+    # ALTERAÇÃO 3: Criamos um método novo, focado em receber os dados crus do livro.
+    # Ele exige que você passe a lista de metadados para garantir a citação acadêmica.
+    def add_chunks(self, ids: list[str], contents: list[str], metadatas: list[dict]):
+        """
+        Adiciona pedaços genéricos de texto (como páginas de um PDF) ao banco.
+        Cada item em 'metadatas' deve conter, por exemplo: {"titulo": "Livro X", "pagina": 15}
+        """
+        self.collection.upsert(
+            documents=contents,
+            ids=ids,
+            metadatas=metadatas
         )
+        print(f"{len(contents)} blocos de texto salvos com sucesso!")
+
+    # ALTERAÇÃO 4: Adicionamos o parâmetro 'where'. Isso é o que permite você 
+    # filtrar a busca para procurar apenas num livro específico, resolvendo seu receio.
+    def find_similar(self, text: str, top_k: int = 3, where_filter: dict = None):
+        """
+        Busca notas similares. Se 'where_filter' for passado, 
+        ex: onde_buscar = {"titulo": "Dom_Casmurro"}, ele ignora os outros livros.
+        """
+        query_args = {
+            "query_texts": [text],
+            "n_results": top_k
+        }
+        
+        # Se você passou um filtro (um livro específico), adicionamos isso na busca
+        if where_filter:
+            query_args["where"] = where_filter
+            
+        results = self.collection.query(**query_args)
         return results
     
+    # MANTER INTACTO: Sua lógica original para o Obsidian
     def sync_db(self, current_files: list[Path]):
-        """
-        Compara os arquivos atuais do cofre com os IDs no banco vetorial.
-        Remove do banco qualquer arquivo que não exista mais no cofre.
-        """
-        # Pega todos os IDs que já estão no banco
         existing_ids = self.collection.get()['ids']
-        
-        # Cria uma lista com os nomes dos arquivos atuais
         current_names = [f.name for f in current_files]
-        
-        # Identifica o que deve ser deletado
         to_delete = [id for id in existing_ids if id not in current_names]
         
         if to_delete:
