@@ -9,10 +9,13 @@ import uuid
 from src.config import carregar_configuracoes, salvar_configuracoes
 from src.utils.file_handler import get_all_md_files, read_file_content
 from src.core.embedder import VectorStore
-from src.core.rag_cli import WikisidianChat, HybridRagEngine # MODIFICADO: Import do motor híbrido
 from src.core.linker import ObsidianLinker
 from src.utils.undo_links import remove_ia_links
 from src.utils.history_handler import salvar_conversa, carregar_conversa, listar_conversas, excluir_conversa
+# Importa o motor do Obsidian a partir do novo arquivo
+from src.core.md_rag_cli import WikisidianChat
+# Importa o motor de Livros a partir do arquivo PDF
+from src.core.pdf_rag_cli import HybridRagEngine
 
 st.set_page_config(page_title="Wikisidian", page_icon="🧠", layout="wide")
 
