@@ -3,46 +3,50 @@ import os
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
+import uuid
+
+# Importações originais do seu projeto
 from src.config import carregar_configuracoes, salvar_configuracoes
 from src.utils.file_handler import get_all_md_files, read_file_content
 from src.core.embedder import VectorStore
-from src.core.rag_cli import WikisidianChat
+from src.core.rag_cli import WikisidianChat, HybridRagEngine # MODIFICADO: Import do motor híbrido
 from src.core.linker import ObsidianLinker
 from src.utils.undo_links import remove_ia_links
-import uuid
 from src.utils.history_handler import salvar_conversa, carregar_conversa, listar_conversas, excluir_conversa
-
 
 st.set_page_config(page_title="Wikisidian", page_icon="🧠", layout="wide")
 
 # ==========================================
 # 0. INICIALIZAÇÃO DE VARIÁVEIS DE ESTADO (GLOBAL)
 # ==========================================
+# Estado para a Guia 1 (Chat Obsidian Original)
 if "mensagens" not in st.session_state:
     st.session_state.mensagens = []
 if "nota_visualizada" not in st.session_state:
     st.session_state.nota_visualizada = None
     st.session_state.caminho_nota = None
 if "conv_id" not in st.session_state:
-    st.session_state.conv_id = None # ID único da conversa atual (JSON)
+    st.session_state.conv_id = None
 if "conversa_temporaria" not in st.session_state:
     st.session_state.conversa_temporaria = False
+
+# NOVO: Estado isolado para a Guia 2 (Chat de Livros PDF)
+if "book_messages" not in st.session_state:
+    st.session_state.book_messages = []
 
 # ==========================================
 # 0.1 CARREGAMENTO DINÂMICO (Anti-Cache)
 # ==========================================
-# Lemos o JSON em tempo real toda vez que a tela atualiza
 CONFIG_ATUAL = carregar_configuracoes()
 caminho_json = CONFIG_ATUAL.get("vault_path", "").strip()
 
 if not caminho_json:
     caminho_json = os.environ.get("PERSONAL_VAULT_PATH", "")
 
-# Esta variável agora é sempre fresca e atualizada
 VAULT_PATH_DINAMICO = Path(caminho_json) if caminho_json else None
 
 # ==========================================
-# 1. FUNÇÃO PARA ABRIR O EXPLORADOR DE ARQUIVOS
+# 1. FUNÇÕES AUXILIARES DA UI
 # ==========================================
 def selecionar_pasta_graficamente(caminho_atual):
     root = tk.Tk()
@@ -55,7 +59,6 @@ def selecionar_pasta_graficamente(caminho_atual):
 # ==========================================
 # 2. MENU LATERAL (CONFIGURAÇÕES)
 # ==========================================
-
 with st.sidebar:
     st.header("⚙️ Configurações")
     
@@ -77,14 +80,12 @@ with st.sidebar:
 
     st.divider()
 
-    # --- BLOCO 2: HISTÓRICO DE CONVERSAS ---
+    # --- BLOCO 2: HISTÓRICO DE CONVERSAS (OBSIDIAN) ---
     todas_conversas = listar_conversas()
-    
-    with st.expander("🕟 Histórico de Conversas", expanded=False):
+    with st.expander("🕟 Histórico de Conversas (Obsidian)", expanded=False):
         if not todas_conversas:
             st.info("Nenhuma conversa salva.")
         else:
-            # Selecionador de conversa
             opcoes = {c["id"]: c["titulo"] for c in todas_conversas}
             escolha_id = st.selectbox("Selecione para continuar:", options=list(opcoes.keys()), format_func=lambda x: opcoes[x])
             
@@ -106,31 +107,23 @@ with st.sidebar:
     st.divider()
 
     # --- BLOCO 3: PASTAS IGNORADAS ---
-    # st.expander cria um "Toggle" expansível. Tudo dentro do 'with' fica oculto até clicar.
     st.write("**🚫 Pastas Ignoradas:**")
-    
     lista_atual = CONFIG_ATUAL.get("ignored_folders", [".obsidian", "99 - TEMP"])
     
     if VAULT_PATH_DINAMICO and VAULT_PATH_DINAMICO.exists():
-        st.write("Marque as pastas para a IA ignorar:")
         novas_ignoradas = []
-        
         pastas_raiz = [p for p in VAULT_PATH_DINAMICO.iterdir() if p.is_dir() and not p.name.startswith(".")]
         
-        # O container com altura fixa substitui a necessidade do expander global!
         with st.container(height=450):
             for pasta_raiz in sorted(pastas_raiz, key=lambda x: x.name.lower()):
                 nome_raiz = pasta_raiz.name
-                
-                # Checkbox da pasta MÃE
                 mae_marcada = nome_raiz in lista_atual
+                
                 if st.checkbox(f"📁 **{nome_raiz}**", value=mae_marcada, key=f"chk_raiz_{nome_raiz}"):
                     novas_ignoradas.append(nome_raiz)
                     mae_marcada = True 
                 
                 subpastas = [p for p in pasta_raiz.rglob("*") if p.is_dir()]
-                
-                # Expander apenas para embutir as FILHAS
                 if subpastas:
                     with st.expander(f"↳ Subpastas de {nome_raiz}"):
                         for sub in sorted(subpastas, key=lambda x: str(x)):
@@ -138,19 +131,14 @@ with st.sidebar:
                             filha_marcada = mae_marcada or (caminho_relativo in lista_atual)
                             
                             cb_filha = st.checkbox(
-                                f"📂 {sub.name}", 
-                                value=filha_marcada, 
-                                disabled=mae_marcada, 
-                                key=f"chk_sub_{caminho_relativo}"
+                                f"📂 {sub.name}", value=filha_marcada, disabled=mae_marcada, key=f"chk_sub_{caminho_relativo}"
                             )
-                            
                             if cb_filha and not mae_marcada:
                                 novas_ignoradas.append(caminho_relativo)
                                 
         if st.button("💾 Salvar Filtros", use_container_width=True):
             CONFIG_ATUAL["ignored_folders"] = novas_ignoradas
             salvar_configuracoes(CONFIG_ATUAL)
-            
             st.success("Filtros atualizados!")
             st.cache_resource.clear() 
             st.rerun()                
@@ -166,42 +154,34 @@ if not VAULT_PATH_DINAMICO or not VAULT_PATH_DINAMICO.exists():
     st.warning("👈 Por favor, selecione a pasta válida do seu cofre do Obsidian no menu lateral para iniciar.")
     st.stop()
 
-# Passamos as pastas ignoradas como parâmetro. Convertemos para 'tuple' (tupla) 
-# porque o @st.cache_resource exige variáveis imutáveis para funcionar corretamente.
 @st.cache_resource
 def iniciar_sistema(caminho_str, pastas_ignoradas_tupla):
     caminho_cofre = Path(caminho_str)
-    
-    # 1. Busca as notas, agora enviando a lista atualizada de pastas ignoradas
     arquivos_md = get_all_md_files(caminho_cofre, pastas_ignoradas_tupla)
     
-    vetor_db = VectorStore()
+    vetor_db = VectorStore(collection_name="obsidian_notes") # MODIFICADO: Explicitei a coleção
     vetor_db.sync_db(arquivos_md)
     
-    # 2. Proteção: Só adiciona se houver ficheiros (evita erros se você ignorar tudo)
     if arquivos_md:
         conteudos = [read_file_content(f) for f in arquivos_md]
         vetor_db.add_notes(arquivos_md, conteudos) 
-    else:
-        st.info("Nenhuma nota encontrada nas pastas permitidas.")
     
     return WikisidianChat(vetor_db, caminho_cofre)
 
-# Pegamos a lista fresca do JSON, convertemos para tupla e injetamos no motor!
 lista_fresca = tuple(CONFIG_ATUAL.get("ignored_folders", []))
-chat_engine = iniciar_sistema(str(VAULT_PATH_DINAMICO), lista_fresca)
+chat_engine_obsidian = iniciar_sistema(str(VAULT_PATH_DINAMICO), lista_fresca)
+
 
 # ==========================================
-# 4. CRIAÇÃO DAS ABAS (TABS)
+# 4. CRIAÇÃO DAS 3 ABAS (TABS)
 # ==========================================
-aba_chat, aba_linker = st.tabs(["💬 Chat RAG", "🔗 Gestor de Conexões"])
+# MODIFICADO: Adicionado a aba "Chat Livros (PDF)" como segunda aba
+aba_chat_obsidian, aba_chat_livros, aba_linker = st.tabs(["💬 Chat Obsidian", "📚 Chat Livros (PDF)", "🔗 Gestor de Conexões"])
 
 # ------------------------------------------
-# ABA 1: O CHAT (SPLIT SCREEN)
+# ABA 1: CHAT RAG OBSIDIAN (Mantido original)
 # ------------------------------------------
-with aba_chat:
-    
-    # === MAGIA DO CSS: COLUNA FIXA ===
+with aba_chat_obsidian:
     st.markdown("""
         <style>
             div[data-testid="stColumn"]:nth-of-type(2),
@@ -214,37 +194,31 @@ with aba_chat:
             }
         </style>
     """, unsafe_allow_html=True)
-    # =================================
 
-    # --- NOVO: CABEÇALHO DO CHAT E MODO HÍBRIDO ---
     col_limpar, col_temp, col_hibrido = st.columns([2, 3, 3])
     
     with col_limpar:
         st.write("")
-        if st.button("✨ Nova Conversa", use_container_width=True):
+        if st.button("✨ Nova Conversa", use_container_width=True, key="btn_novo_obs"):
             st.session_state.mensagens = []
             st.session_state.nota_visualizada = None
             st.session_state.caminho_nota = None
-            st.session_state.conv_id = None # Reseta o ID para criar um novo JSON
+            st.session_state.conv_id = None 
             st.rerun()
 
     with col_temp:
         st.write("")
-        conversa_temp = st.toggle("👻 Modo Temporário", value=False, help="Não salva esta conversa nos históricos futuros.")
-        # Guardaremos este valor para o Passo 2 (salvamento JSON)
+        conversa_temp = st.toggle("👻 Modo Temporário", value=False, help="Não salva no histórico.", key="tg_temp_obs")
         st.session_state.conversa_temporaria = conversa_temp 
 
     with col_hibrido:
         st.write("") 
-        modo_criativo = st.toggle("🌐 Conhecimento Externo", value=False, help="Ative para permitir que a IA cruze os seus dados com conhecimentos externos.")
+        modo_criativo = st.toggle("🌐 Conhecimento Externo", value=False, key="tg_ext_obs")
     
     st.divider()
 
-
-    # 2. Criamos o Split Screen: 60% para o Chat, 40% para a Nota
     col_chat, col_nota = st.columns([6, 4], gap="large")
 
-    # --- LADO ESQUERDO: CHAT ---
     with col_chat:
         for i, msg in enumerate(st.session_state.mensagens):
             with st.chat_message(msg["role"]):
@@ -258,20 +232,15 @@ with aba_chat:
                                 st.session_state.caminho_nota = fonte['caminho']
                                 st.rerun() 
 
-        pergunta = st.chat_input("Pergunte algo sobre as suas anotações...")
-
-        if pergunta:
+        if pergunta := st.chat_input("Pergunte algo sobre as suas anotações..."):
             with st.chat_message("user"):
                 st.markdown(pergunta)
             
-            # Adicionamos a pergunta ANTES da chamada, para o histórico ficar visualmente atualizado,
-            # mas vamos passar para a IA apenas as mensagens *anteriores* a esta.
             st.session_state.mensagens.append({"role": "user", "content": pergunta})
             
             with st.chat_message("assistant"):
-                # NOVO: Passamos o histórico recente (excluindo a última pergunta inserida acima)
                 resposta_ia = st.write_stream(
-                    chat_engine.perguntar(
+                    chat_engine_obsidian.perguntar(
                         pergunta, 
                         modo_estrito=not modo_criativo,
                         historico=st.session_state.mensagens[:-1] 
@@ -281,64 +250,116 @@ with aba_chat:
             st.session_state.mensagens.append({
                 "role": "assistant", 
                 "content": resposta_ia,
-                "fontes": list(chat_engine.notas_contexto) 
+                "fontes": list(chat_engine_obsidian.notas_contexto) 
             })
             
-            # SALVAMENTO AUTOMÁTICO
             if not st.session_state.conversa_temporaria:
-                # Se não tem ID, gera um novo
                 if not st.session_state.conv_id:
                     st.session_state.conv_id = str(uuid.uuid4())[:8]
-                
-                # O título será as primeiras 40 letras da primeira pergunta do usuário
                 titulo_conversa = st.session_state.mensagens[0]["content"][:40] + "..."
-                
-                # Salva o arquivo JSON no disco
                 salvar_conversa(st.session_state.conv_id, st.session_state.mensagens, titulo_conversa)
                 
             st.rerun()
 
-    # --- LADO DIREITO: VISUALIZADOR MARKDOWN ---
     with col_nota:
         st.header("📄 Visualizador de Notas")
         st.divider()
-        
         if st.session_state.nota_visualizada:
             st.subheader(st.session_state.nota_visualizada)
-            
-            # Lê o ficheiro em tempo real e de forma segura
             conteudo_nota = read_file_content(Path(st.session_state.caminho_nota))
-            
-            # Cria uma "caixa" com altura fixa e barra de scroll
             with st.container(height=550):
-                # st.markdown renderiza perfeitamente o seu texto, imagens web, tabelas e fórmulas $$
                 st.markdown(conteudo_nota)
         else:
             st.info("👈 Faça uma pergunta e clique numa das notas utilizadas no chat para ler o seu conteúdo original aqui.")
 
+
 # ------------------------------------------
-# ABA 2: O LINKER (INJEÇÃO E REMOÇÃO DE BACKLINKS)
+# ABA 2: CHAT LIVROS PDF (O SEU NOVO NOTEBOOKLM)
+# ------------------------------------------
+with aba_chat_livros:
+    st.header("📚 Pesquisa Acadêmica em Livros")
+    
+    # --- PAINEL DE CONTROLE (Botões e Toggles) ---
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.write("") # Alinhamento
+        if st.button("✨ Nova Pesquisa", key="btn_novo_livro", use_container_width=True):
+            st.session_state.book_messages = []
+            st.rerun() 
+            
+    with col2:
+        st.write("")
+        # NOVO: Toggle para usar apenas as notas como consulta rápida sem salvar no histórico
+        conversa_temp_livro = st.toggle("Modo Temporário", value=True, key="tg_tmp_livro", help="Não memoriza mensagens para otimizar tokens.")
+        
+    with col3:
+        st.write("")
+        # NOVO: Controle estrito de resposta da LLM (usando seu HybridRAG)
+        modo_estrito_livro = st.toggle("Modo Acadêmico Estrito", value=True, key="tg_estrito_livro", 
+                                 help="Se ativado, a IA obrigatoriamente fará a citação baseada apenas nos PDFs extraídos.")
+    with col4:
+        st.write("")
+        # NOVO: O botão mágico que cruza Livros com o seu Obsidian
+        incluir_obsidian = st.toggle("🔗 Cruzar com Obsidian", value=False, key="tg_obs_livro",
+                                     help="Busca a resposta simultaneamente nos Livros e no seu Cofre Obsidian.")
+
+    st.divider()
+
+    # --- RENDERIZAÇÃO DO HISTÓRICO ---
+    for msg in st.session_state.book_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # --- INPUT DO USUÁRIO ---
+    if prompt_livro := st.chat_input("Faça uma pergunta sobre a biblioteca de PDFs...", key="input_livro"):
+        
+        with st.chat_message("user"):
+            st.markdown(prompt_livro)
+        
+        # Apenas salva a pergunta se não for modo temporário
+        if not conversa_temp_livro:
+            st.session_state.book_messages.append({"role": "user", "content": prompt_livro})
+
+        # --- RESPOSTA DA IA ---
+        with st.chat_message("assistant"):
+            # NOVO: Instanciamos o motor híbrido que você configurou no rag_cli.py
+            engine_livros = HybridRagEngine()
+            
+            # Pega as últimas 4 mensagens de contexto
+            historico_para_ia = st.session_state.book_messages[-5:-1] if len(st.session_state.book_messages) > 1 else None
+
+            # Renderiza o stream da IA
+            resposta_completa = st.write_stream(
+                engine_livros.query(
+                    pergunta_usuario=prompt_livro,
+                    modo_estrito=modo_estrito_livro,
+                    incluir_obsidian=incluir_obsidian,
+                    historico=historico_para_ia
+                )
+            )
+
+        # Salva a resposta no state se não for modo temporário
+        if not conversa_temp_livro and resposta_completa:
+            st.session_state.book_messages.append({"role": "assistant", "content": resposta_completa})
+
+
+# ------------------------------------------
+# ABA 3: O LINKER (Gestor de Conexões Original)
 # ------------------------------------------
 with aba_linker:
     st.header("Gerador Automático de Backlinks")
     st.write("A IA varre o seu cofre e injeta notas relacionadas no final dos arquivos. Você também pode desfazer este processo a qualquer momento.")
     
     top_k_links = st.slider("Quantos links deseja injetar por nota?", min_value=1, max_value=5, value=3)
+    st.write("")
     
-    st.write("") # Dá um pequeno espaçamento visual
-    
-    # Criamos duas colunas com o mesmo tamanho
     col1, col2 = st.columns(2)
-    
     with col1:
-        # Botão de ação principal
         btn_injetar = st.button("🚀 Iniciar Injeção de Links", use_container_width=True)
-        
     with col2:
-        # Botão de reversão
         btn_remover = st.button("🧹 Desfazer Todos os Links", use_container_width=True)
         
-    # --- LÓGICA DO BOTÃO INJETAR ---
     if btn_injetar:
         arquivos_para_processar = get_all_md_files(VAULT_PATH_DINAMICO, lista_fresca)
         total_arquivos = len(arquivos_para_processar)
@@ -346,30 +367,24 @@ with aba_linker:
         if total_arquivos == 0:
             st.warning("Nenhum ficheiro encontrado para processar.")
         else:
-            linker = ObsidianLinker(chat_engine.vs)
+            linker = ObsidianLinker(chat_engine_obsidian.vs)
             notas_atualizadas = 0
-            
             barra_progresso = st.progress(0)
             texto_status = st.empty() 
             
             for i, arquivo in enumerate(arquivos_para_processar):
                 texto_status.text(f"Processando ({i+1}/{total_arquivos}): {arquivo.name}")
-                
                 alterou = linker.inject_links(arquivo, top_k=top_k_links)
                 if alterou:
                     notas_atualizadas += 1
-                
                 barra_progresso.progress((i + 1) / total_arquivos)
             
             texto_status.success(f"Finalizado! {notas_atualizadas} notas receberam novas conexões.")
             st.balloons()
 
-    # --- LÓGICA DO BOTÃO DESFAZER ---
     if btn_remover:
         with st.spinner("A varrer o cofre e a remover as assinaturas da IA..."):
-            # Chama a função de limpeza com a lista fresca de pastas ignoradas
             total_limpo = remove_ia_links(VAULT_PATH_DINAMICO, lista_fresca)
-            
             if total_limpo > 0:
                 st.success(f"Ufa! {total_limpo} ficheiros foram restaurados ao seu estado original com sucesso.")
             else:
