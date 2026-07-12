@@ -22,6 +22,11 @@ from src.utils.chunker import chunk_markdown_file
 from src.utils.summarizer import gerar_e_salvar_resumo
 from src.utils.chunker import embed_resumo_global
 
+import logging
+# Silencia especificamente os logs de aviso da biblioteca LiteLLM
+logging.getLogger('LiteLLM').setLevel(logging.ERROR)
+logging.getLogger('litellm').setLevel(logging.ERROR)
+
 st.set_page_config(page_title="Wikisidian", page_icon="🧠", layout="wide")
 
 # ==========================================
