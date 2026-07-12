@@ -16,6 +16,8 @@ from src.utils.history_handler import salvar_conversa, carregar_conversa, listar
 from src.core.md_rag_cli import WikisidianChat
 # Importa o motor de Livros a partir do arquivo PDF
 from src.core.pdf_rag_cli import HybridRagEngine
+from src.utils.chunker import chunk_and_embed_book
+from src.utils.pdf_handler import process_pdf_to_json
 
 st.set_page_config(page_title="Wikisidian", page_icon="🧠", layout="wide")
 
@@ -36,6 +38,10 @@ if "conversa_temporaria" not in st.session_state:
 # NOVO: Estado isolado para a Guia 2 (Chat de Livros PDF)
 if "book_messages" not in st.session_state:
     st.session_state.book_messages = []
+if "conv_id_livros" not in st.session_state:
+    st.session_state.conv_id_livros = None
+if "chunk_visualizado" not in st.session_state:
+    st.session_state.chunk_visualizado = None
 
 # ==========================================
 # 0.1 CARREGAMENTO DINÂMICO (Anti-Cache)
@@ -83,71 +89,148 @@ with st.sidebar:
 
     st.divider()
 
-    # --- BLOCO 2: HISTÓRICO DE CONVERSAS (OBSIDIAN) ---
+    # --- BLOCO 2: HISTÓRICOS DE CONVERSAS ---
     todas_conversas = listar_conversas()
-    with st.expander("🕟 Histórico de Conversas (Obsidian)", expanded=False):
-        if not todas_conversas:
+    
+    # Separamos as conversas (adicionaremos o prefixo 'livro_' na hora de salvar)
+    conversas_obsidian = [c for c in todas_conversas if not c["id"].startswith("livro_")]
+    conversas_livros = [c for c in todas_conversas if c["id"].startswith("livro_")]
+
+    with st.expander("🕟 Histórico (Obsidian)", expanded=False):
+        if not conversas_obsidian:
             st.info("Nenhuma conversa salva.")
         else:
-            opcoes = {c["id"]: c["titulo"] for c in todas_conversas}
-            escolha_id = st.selectbox("Selecione para continuar:", options=list(opcoes.keys()), format_func=lambda x: opcoes[x])
-            
-            col_carregar, col_excluir = st.columns(2)
-            if col_carregar.button("📂 Carregar"):
-                st.session_state.mensagens = carregar_conversa(escolha_id)
-                st.session_state.conv_id = escolha_id
-                st.session_state.nota_visualizada = None
+            opcoes_obs = {c["id"]: c["titulo"] for c in conversas_obsidian}
+            escolha_id_obs = st.selectbox("Continuar chat:", options=list(opcoes_obs.keys()), format_func=lambda x: opcoes_obs[x], key="hist_obs")
+            col1, col2 = st.columns(2)
+            if col1.button("📂 Carregar", key="load_obs"):
+                st.session_state.mensagens = carregar_conversa(escolha_id_obs)
+                st.session_state.conv_id = escolha_id_obs
                 st.rerun()
-                
-            if col_excluir.button("🗑️ Excluir"):
-                excluir_conversa(escolha_id)
-                if st.session_state.conv_id == escolha_id:
-                    st.session_state.mensagens = []
-                    st.session_state.conv_id = None
-                st.success("Apagado!")
+            if col2.button("🗑️ Excluir", key="del_obs"):
+                excluir_conversa(escolha_id_obs)
                 st.rerun()
 
-    st.divider()
+    with st.expander("🕟 Histórico (Livros)", expanded=False):
+        if not conversas_livros:
+            st.info("Nenhuma conversa salva.")
+        else:
+            opcoes_liv = {c["id"]: c["titulo"] for c in conversas_livros}
+            escolha_id_liv = st.selectbox("Continuar pesquisa:", options=list(opcoes_liv.keys()), format_func=lambda x: opcoes_liv[x], key="hist_liv")
+            col3, col4 = st.columns(2)
+            if col3.button("📂 Carregar", key="load_liv"):
+                st.session_state.book_messages = carregar_conversa(escolha_id_liv)
+                st.session_state.conv_id_livros = escolha_id_liv
+                st.session_state.chunk_visualizado = None
+                st.rerun()
+            if col4.button("🗑️ Excluir", key="del_liv"):
+                excluir_conversa(escolha_id_liv)
+                st.rerun()
 
-    # --- BLOCO 3: PASTAS IGNORADAS ---
-    st.write("**🚫 Pastas Ignoradas:**")
-    lista_atual = CONFIG_ATUAL.get("ignored_folders", [".obsidian", "99 - TEMP"])
-    
-    if VAULT_PATH_DINAMICO and VAULT_PATH_DINAMICO.exists():
-        novas_ignoradas = []
-        pastas_raiz = [p for p in VAULT_PATH_DINAMICO.iterdir() if p.is_dir() and not p.name.startswith(".")]
+
+    # --- BLOCO 3: PASTAS IGNORADAS (AGORA NO EXPANDER) ---
+    with st.expander("🚫 Pastas Ignoradas (Obsidian)", expanded=False):
+        lista_atual = CONFIG_ATUAL.get("ignored_folders", [".obsidian", "99 - TEMP"])
         
-        with st.container(height=450):
-            for pasta_raiz in sorted(pastas_raiz, key=lambda x: x.name.lower()):
-                nome_raiz = pasta_raiz.name
-                mae_marcada = nome_raiz in lista_atual
-                
-                if st.checkbox(f"📁 **{nome_raiz}**", value=mae_marcada, key=f"chk_raiz_{nome_raiz}"):
-                    novas_ignoradas.append(nome_raiz)
-                    mae_marcada = True 
-                
-                subpastas = [p for p in pasta_raiz.rglob("*") if p.is_dir()]
-                if subpastas:
-                    with st.expander(f"↳ Subpastas de {nome_raiz}"):
+        if VAULT_PATH_DINAMICO and VAULT_PATH_DINAMICO.exists():
+            novas_ignoradas = []
+            pastas_raiz = [p for p in VAULT_PATH_DINAMICO.iterdir() if p.is_dir() and not p.name.startswith(".")]
+            
+            with st.container(height=300): # Altura reduzida para economizar mais espaço
+                for pasta_raiz in sorted(pastas_raiz, key=lambda x: x.name.lower()):
+                    nome_raiz = pasta_raiz.name
+                    mae_marcada = nome_raiz in lista_atual
+                    
+                    if st.checkbox(f"📁 **{nome_raiz}**", value=mae_marcada, key=f"chk_raiz_{nome_raiz}"):
+                        novas_ignoradas.append(nome_raiz)
+                        mae_marcada = True 
+                    
+                    subpastas = [p for p in pasta_raiz.rglob("*") if p.is_dir()]
+                    if subpastas:
                         for sub in sorted(subpastas, key=lambda x: str(x)):
                             caminho_relativo = str(sub.relative_to(VAULT_PATH_DINAMICO)).replace("\\", "/")
                             filha_marcada = mae_marcada or (caminho_relativo in lista_atual)
-                            
-                            cb_filha = st.checkbox(
-                                f"📂 {sub.name}", value=filha_marcada, disabled=mae_marcada, key=f"chk_sub_{caminho_relativo}"
-                            )
+                            cb_filha = st.checkbox(f"↳ {sub.name}", value=filha_marcada, disabled=mae_marcada, key=f"chk_sub_{caminho_relativo}")
                             if cb_filha and not mae_marcada:
                                 novas_ignoradas.append(caminho_relativo)
-                                
-        if st.button("💾 Salvar Filtros", use_container_width=True):
-            CONFIG_ATUAL["ignored_folders"] = novas_ignoradas
-            salvar_configuracoes(CONFIG_ATUAL)
-            st.success("Filtros atualizados!")
-            st.cache_resource.clear() 
-            st.rerun()                
-    else:
-        st.info("Selecione um cofre primeiro para ver as pastas.")
+                                    
+            if st.button("💾 Salvar Filtros", use_container_width=True):
+                CONFIG_ATUAL["ignored_folders"] = novas_ignoradas
+                salvar_configuracoes(CONFIG_ATUAL)
+                st.success("Filtros atualizados!")
+                st.cache_resource.clear() 
+                st.rerun()                
+        else:
+            st.info("Selecione um cofre primeiro.")
 
+
+    # --- BLOCO 4: SELEÇÃO DE LIVROS (NOVO) ---
+    if "livros_selecionados" not in st.session_state:
+        st.session_state.livros_selecionados = []
+
+    with st.expander("📚 Filtro de Livros", expanded=False):
+        st.write("Marque os livros que a IA deve consultar:")
+        pasta_json = Path("books_data/extracted_texts")
+        
+        # Cria a pasta caso não exista
+        pasta_json.mkdir(parents=True, exist_ok=True)
+        
+        # Pega todos os arquivos JSON (Livros já processados)
+        livros_processados = [f.stem for f in pasta_json.glob("*.json")]
+        
+        if not livros_processados:
+            st.info("Nenhum livro processado ainda.")
+        else:
+            selecionados_temp = []
+            with st.container(height=200):
+                for livro in livros_processados:
+                    # Por padrão, deixamos todos marcados. 
+                    if st.checkbox(livro, value=True, key=f"chk_livro_{livro}"):
+                        selecionados_temp.append(livro)
+            
+            st.session_state.livros_selecionados = selecionados_temp
+            if not selecionados_temp:
+                st.warning("⚠️ Nenhum livro marcado. A IA não terá base para responder.")
+
+
+    # --- BLOCO 5: IMPORTAÇÃO E PROCESSAMENTO DE PDFs (NOVO) ---
+    with st.expander("📥 Importar Novos PDFs", expanded=False):
+        arquivos_pdf = st.file_uploader("Arraste seus PDFs aqui", type=["pdf"], accept_multiple_files=True)
+        
+        if arquivos_pdf and st.button("🚀 Processar e Vetorizar", use_container_width=True):
+            pasta_raw = Path("books_data/raw_pdfs")
+            pasta_raw.mkdir(parents=True, exist_ok=True)
+            
+            progresso = st.progress(0)
+            texto_progresso = st.empty()
+            
+            for i, arquivo in enumerate(arquivos_pdf):
+                caminho_salvar = pasta_raw / arquivo.name
+                texto_progresso.text(f"Salvando: {arquivo.name}")
+                
+                # 1. Salva o PDF no disco local
+                with open(caminho_salvar, "wb") as f:
+                    f.write(arquivo.getbuffer())
+                
+                try:
+                    # 2. Roda o Extrator (Transforma PDF em JSON)
+                    texto_progresso.text(f"Extraindo texto: {arquivo.name}")
+                    # AQUI VOCÊ CHAMA A SUA FUNÇÃO DO pdf_handler.py
+                    process_pdf_to_json(caminho_salvar)
+                    
+                    # 3. Roda o Chunker (Transforma JSON em Vetor no Chroma)
+                    nome_json = arquivo.name.replace(".pdf", ".json")
+                    texto_progresso.text(f"Vetorizando: {nome_json}")
+                    chunk_and_embed_book(nome_json)
+                    
+                except Exception as e:
+                    st.error(f"Erro no livro {arquivo.name}: {e}")
+                    
+                # Atualiza a barrinha de progresso
+                progresso.progress((i + 1) / len(arquivos_pdf))
+                
+            texto_progresso.success("Todos os PDFs foram processados!")
+            st.balloons()
 # ==========================================
 # 3. ÁREA PRINCIPAL E INICIALIZAÇÃO
 # ==========================================
@@ -218,7 +301,6 @@ with aba_chat_obsidian:
         st.write("") 
         modo_criativo = st.toggle("🌐 Conhecimento Externo", value=False, key="tg_ext_obs")
     
-    st.divider()
 
     col_chat, col_nota = st.columns([6, 4], gap="large")
 
@@ -280,71 +362,98 @@ with aba_chat_obsidian:
 # ABA 2: CHAT LIVROS PDF (O SEU NOVO NOTEBOOKLM)
 # ------------------------------------------
 with aba_chat_livros:
-    st.header("📚 Pesquisa Acadêmica em Livros")
     
-    # --- PAINEL DE CONTROLE (Botões e Toggles) ---
+    # Adicionamos os controles superiores da aba
     col1, col2, col3, col4 = st.columns(4)
-    
     with col1:
-        st.write("") # Alinhamento
+        st.write("")
         if st.button("✨ Nova Pesquisa", key="btn_novo_livro", use_container_width=True):
             st.session_state.book_messages = []
+            st.session_state.conv_id_livros = None
+            st.session_state.chunk_visualizado = None
             st.rerun() 
-            
     with col2:
         st.write("")
-        # NOVO: Toggle para usar apenas as notas como consulta rápida sem salvar no histórico
-        conversa_temp_livro = st.toggle("Modo Temporário", value=True, key="tg_tmp_livro", help="Não memoriza mensagens para otimizar tokens.")
-        
+        conversa_temp_livro = st.toggle("Modo Temporário", value=False, key="tg_tmp_livro", help="Não salva no histórico.")
     with col3:
         st.write("")
-        # NOVO: Controle estrito de resposta da LLM (usando seu HybridRAG)
-        modo_estrito_livro = st.toggle("Modo Acadêmico Estrito", value=True, key="tg_estrito_livro", 
-                                 help="Se ativado, a IA obrigatoriamente fará a citação baseada apenas nos PDFs extraídos.")
+        modo_estrito_livro = st.toggle("Modo Acadêmico Estrito", value=True, key="tg_estrito_livro")
     with col4:
         st.write("")
-        # NOVO: O botão mágico que cruza Livros com o seu Obsidian
-        incluir_obsidian = st.toggle("🔗 Cruzar com Obsidian", value=False, key="tg_obs_livro",
-                                     help="Busca a resposta simultaneamente nos Livros e no seu Cofre Obsidian.")
+        incluir_obsidian = st.toggle("🔗 Cruzar com Obsidian", value=False, key="tg_obs_livro")
 
     st.divider()
 
-    # --- RENDERIZAÇÃO DO HISTÓRICO ---
-    for msg in st.session_state.book_messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    # NOVO: DIVISÃO DA TELA (60% Chat, 40% Visualizador de Chunk)
+    col_chat_livros, col_nota_livros = st.columns([6, 4], gap="large")
 
-    # --- INPUT DO USUÁRIO ---
-    if prompt_livro := st.chat_input("Faça uma pergunta sobre a biblioteca de PDFs...", key="input_livro"):
-        
-        with st.chat_message("user"):
-            st.markdown(prompt_livro)
-        
-        # Apenas salva a pergunta se não for modo temporário
-        if not conversa_temp_livro:
+    # --- LADO ESQUERDO: CHAT DOS LIVROS ---
+    with col_chat_livros:
+        for i, msg in enumerate(st.session_state.book_messages):
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+                
+                # Renderiza os botões de fonte se a IA tiver usado algum chunk
+                if msg["role"] == "assistant" and "fontes" in msg and msg["fontes"]:
+                    with st.expander("📚 Ver trechos utilizados"):
+                        for j, fonte in enumerate(msg["fontes"]):
+                            # Clicar neste botão muda o chunk que será mostrado na direita
+                            if st.button(f"🔖 {fonte['nome']}", key=f"btn_livro_chunk_{i}_{j}"):
+                                st.session_state.chunk_visualizado = fonte
+                                st.rerun()
+
+        if prompt_livro := st.chat_input("Faça uma pergunta sobre a biblioteca de PDFs...", key="input_livro"):
+            with st.chat_message("user"):
+                st.markdown(prompt_livro)
+            
             st.session_state.book_messages.append({"role": "user", "content": prompt_livro})
 
-        # --- RESPOSTA DA IA ---
-        with st.chat_message("assistant"):
-            # NOVO: Instanciamos o motor híbrido que você configurou no rag_cli.py
-            engine_livros = HybridRagEngine()
-            
-            # Pega as últimas 4 mensagens de contexto
-            historico_para_ia = st.session_state.book_messages[-5:-1] if len(st.session_state.book_messages) > 1 else None
+            with st.chat_message("assistant"):
+                engine_livros = HybridRagEngine()
+                historico_para_ia = st.session_state.book_messages[-5:-1] if len(st.session_state.book_messages) > 1 else None
 
-            # Renderiza o stream da IA
-            resposta_completa = st.write_stream(
-                engine_livros.query(
-                    pergunta_usuario=prompt_livro,
-                    modo_estrito=modo_estrito_livro,
-                    incluir_obsidian=incluir_obsidian,
-                    historico=historico_para_ia
+                resposta_completa = st.write_stream(
+                    engine_livros.query(
+                        pergunta_usuario=prompt_livro,
+                        book_titles=st.session_state.livros_selecionados,
+                        modo_estrito=modo_estrito_livro,
+                        incluir_obsidian=incluir_obsidian,
+                        historico=historico_para_ia
+                    )
                 )
-            )
 
-        # Salva a resposta no state se não for modo temporário
-        if not conversa_temp_livro and resposta_completa:
-            st.session_state.book_messages.append({"role": "assistant", "content": resposta_completa})
+            # Salva no histórico local da sessão
+            st.session_state.book_messages.append({
+                "role": "assistant", 
+                "content": resposta_completa,
+                "fontes": engine_livros.fontes_utilizadas # Guardamos os chunks recebidos do motor
+            })
+
+            # SALVAMENTO EM JSON (Se não for temporário)
+            if not conversa_temp_livro:
+                if not st.session_state.conv_id_livros:
+                    # Usamos o prefixo 'livro_' para não misturar com os IDs do Obsidian
+                    st.session_state.conv_id_livros = "livro_" + str(uuid.uuid4())[:8]
+                
+                titulo_conversa = "[PDF] " + st.session_state.book_messages[0]["content"][:35] + "..."
+                salvar_conversa(st.session_state.conv_id_livros, st.session_state.book_messages, titulo_conversa)
+
+            st.rerun()
+
+    # --- LADO DIREITO: VISUALIZADOR DE CHUNKS ---
+    with col_nota_livros:
+        st.header("📄 Trecho do Livro")
+        st.divider()
+        
+        if st.session_state.chunk_visualizado:
+            fonte_atual = st.session_state.chunk_visualizado
+            st.subheader(fonte_atual["nome"])
+            
+            # Caixa estilizada para mostrar o chunk exato que a IA leu
+            with st.container(height=550):
+                st.info(fonte_atual["texto"])
+        else:
+            st.info("👈 Clique num botão de fonte gerado pela IA no chat para ler o trecho exato do livro do qual a informação foi extraída.")
 
 
 # ------------------------------------------

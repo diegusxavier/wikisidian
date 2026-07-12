@@ -17,20 +17,29 @@ class HybridRagEngine:
     def query(
         self, 
         pergunta_usuario: str, 
-        book_title: str = None, 
+        book_titles: list = None,
         top_k: int = 4, 
         modo_estrito: bool = True,
-        incluir_obsidian: bool = False, # NOVO: Controle de injeção de notas
+        incluir_obsidian: bool = False,
         historico: list = None
     ) -> Generator[str, None, None]:
         
         contexto_str = ""
         encontrou_algo = False
+        
+        # NOVO: Resetamos as fontes a cada nova pergunta para guardar os chunks
+        self.fontes_utilizadas = [] 
 
         # ==========================================
         # 1. BUSCA NOS LIVROS
         # ==========================================
-        filtro_livro = {"titulo": book_title} if book_title else None
+        filtro_livro = None
+        if book_titles:
+            if len(book_titles) == 1:
+                filtro_livro = {"titulo": book_titles[0]}
+            else:
+                filtro_livro = {"titulo": {"$in": book_titles}}
+
         res_livros = self.db_books.find_similar(
             text=pergunta_usuario, 
             top_k=top_k, 
@@ -41,8 +50,16 @@ class HybridRagEngine:
             encontrou_algo = True
             contexto_str += "=== TRECHOS DE LIVROS ===\n"
             for doc, meta in zip(res_livros['documents'][0], res_livros['metadatas'][0]):
-                contexto_str += f"[LIVRO: {meta.get('titulo', 'Desconhecido')} | PÁGINA: {meta.get('pagina', '?')}]\n{doc}\n\n"
-
+                titulo = meta.get('titulo', 'Desconhecido')
+                pagina = meta.get('pagina', '?')
+                
+                contexto_str += f"[LIVRO: {titulo} | PÁGINA: {pagina}]\n{doc}\n\n"
+                
+                # NOVO: Salvamos o título, a página e o texto cru do chunk!
+                self.fontes_utilizadas.append({
+                    "nome": f"{titulo} (p. {pagina})",
+                    "texto": doc
+                })
         # ==========================================
         # 2. BUSCA NO OBSIDIAN (Se ativado)
         # ==========================================
@@ -103,7 +120,8 @@ class HybridRagEngine:
 
         prompt_usuario = f"CONTEXTO RECUPERADO:\n{contexto_str}\n\n{historico_str}PERGUNTA: {pergunta_usuario}\n"
 
-        print(f"Processando pergunta (Livro: {book_title or 'Todos'} | Obsidian: {incluir_obsidian} | Estrito: {modo_estrito})...")
+        book_titles_str = ", ".join(book_titles) if book_titles else "Todos"
+        print(f"Processando pergunta (Livros: {book_titles_str} | Obsidian: {incluir_obsidian} | Estrito: {modo_estrito})...")
         
         try:
             resposta = completion(
@@ -130,7 +148,7 @@ class HybridRagEngine:
 if __name__ == "__main__":
     engine = HybridRagEngine()
     
-    pergunta = "Qual é a principal teoria apresentada?"
+    pergunta = "Qual a importância da educação bilingue?"
     
     print("\n--- TESTE: MODO ESTRITO (SÓ LIVROS) ---")
     for chunk in engine.query(pergunta, modo_estrito=True, incluir_obsidian=False):
