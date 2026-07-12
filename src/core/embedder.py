@@ -1,38 +1,67 @@
-import chromadb
-from chromadb.utils import embedding_functions
+import os
+import json
 from pathlib import Path
+import chromadb
 
 class VectorStore:
-    # ALTERAÇÃO 1: Adicionamos 'collection_name' aqui, mantendo 'obsidian_notes' como padrão
-    def __init__(self, db_path: str = "vector_store", collection_name: str = "obsidian_notes"):
-        self.client = chromadb.PersistentClient(path=db_path)
+    def __init__(self, collection_name="obsidian_notes"):
+        # Mantenha a sua conexão atual com o ChromaDB aqui
+        self.client = chromadb.PersistentClient(path="./chroma_db")
+        self.collection = self.client.get_or_create_collection(name=collection_name)
         
-        self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="paraphrase-multilingual-MiniLM-L12-v2"
-        )
-        
-        # ALTERAÇÃO 2: Agora o nome da coleção é dinâmico. 
-        # Assim você pode criar VectorStore(collection_name="pdf_books")
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            embedding_function=self.embedding_fn,
-            metadata={"hnsw:space": "cosine"}
-        )
+        # NOVO: O "cérebro" que lembra o que já foi processado
+        self.sync_cache_path = Path("books_data/obsidian_cache.json")
 
-    # MANTER INTACTO: Este é o seu método antigo, que serve para as notas do Obsidian
-    def add_notes(self, files: list[Path], contents: list[str]):
-        # Quando passamos o 'contents' (que é uma lista de strings gigantes
-        # com os textos das suas notas), o ChromaDB pega aquele modelo MiniLM
-        # configurado na inicialização, passa texto por texto dentro da IA,
-        # transforma tudo em matrizes de 384 dimensões e armazena na memória do banco.
-        # Ele associa cada vetor ao seu 'id' (nome do arquivo) e aos seus metadados (caminho).
-        ids = [str(f.name) for f in files] 
-        self.collection.upsert(
-            documents=contents,
-            ids=ids,
-            metadatas=[{"path": str(f)} for f in files]
-        )
-        print(f"{len(files)} notas processadas e salvas no banco vetorial!")
+    def _carregar_cache(self):
+        if self.sync_cache_path.exists():
+            with open(self.sync_cache_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return {}
+
+    def _salvar_cache(self, cache_dict):
+        self.sync_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.sync_cache_path, "w", encoding="utf-8") as f:
+            json.dump(cache_dict, f, indent=4)
+
+    def sync_db(self, arquivos_md: list[Path]) -> list[Path]:
+        """
+        Compara os arquivos reais com o cache. 
+        Retorna APENAS a lista de arquivos que precisam ser (re)vetorizados.
+        """
+        cache_atual = self._carregar_cache()
+        arquivos_pendentes = []
+        novo_cache = {}
+
+        print("Verificando alterações no cofre Obsidian...")
+
+        # 1. Verifica adições e modificações
+        for arquivo in arquivos_md:
+            caminho_str = str(arquivo)
+            # Lê o timestamp de última modificação do arquivo no Windows/Mac/Linux
+            tempo_modificacao = os.path.getmtime(arquivo)
+
+            # Se o arquivo é novo OU foi editado recentemente
+            if caminho_str not in cache_atual or cache_atual[caminho_str] != tempo_modificacao:
+                arquivos_pendentes.append(arquivo)
+                # Opcional: Se for uma modificação, apagamos os chunks antigos antes de gerar os novos
+                if caminho_str in cache_atual:
+                    self.collection.delete(where={"caminho": caminho_str})
+
+            novo_cache[caminho_str] = tempo_modificacao
+
+        # 2. Verifica deleções (Notas que você apagou do Obsidian)
+        arquivos_deletados = [caminho for caminho in cache_atual if caminho not in novo_cache]
+        if arquivos_deletados:
+            for deletado in arquivos_deletados:
+                self.collection.delete(where={"caminho": deletado})
+            print(f"{len(arquivos_deletados)} arquivos deletados removidos do banco vetorial.")
+
+        # Salva o estado atualizado para a próxima execução
+        self._salvar_cache(novo_cache)
+
+        return arquivos_pendentes
+        
+    # Mantenha os seus métodos find_similar e add_chunks intactos abaixo...
 
     # ALTERAÇÃO 3: Criamos um método novo, focado em receber os dados crus do livro.
     # Ele exige que você passe a lista de metadados para garantir a citação acadêmica.

@@ -244,23 +244,24 @@ if not VAULT_PATH_DINAMICO or not VAULT_PATH_DINAMICO.exists():
 @st.cache_resource
 def iniciar_sistema(caminho_str, pastas_ignoradas_tupla):
     caminho_cofre = Path(caminho_str)
-    arquivos_md = get_all_md_files(caminho_cofre, pastas_ignoradas_tupla)
+    todos_arquivos = get_all_md_files(caminho_cofre, pastas_ignoradas_tupla)
     
     vetor_db = VectorStore(collection_name="obsidian_notes")
     
-    # O seu sync_db provavelmente remove do ChromaDB as notas que você apagou do HD.
-    # Pode manter.
-    vetor_db.sync_db(arquivos_md) 
+    # A MÁGICA: O sync_db agora devolve só o que mudou!
+    arquivos_para_processar = vetor_db.sync_db(todos_arquivos)
     
-    if arquivos_md:
+    # Só executamos o fatiamento pesadão se houver arquivos pendentes
+    if arquivos_para_processar:
+        print(f"⚡ Atualizando {len(arquivos_para_processar)} notas...")
         todos_ids = []
         todos_chunks = []
         todos_metadados = []
         
-        # Para cada nota no seu Obsidian, nós fatiamos antes de enviar pro banco
-        for arquivo in arquivos_md:
+        for arquivo in arquivos_para_processar:
             conteudo_completo = read_file_content(arquivo)
             
+            # Chamada do fatiador que criamos na etapa anterior
             ids_nota, chunks_nota, metadados_nota = chunk_markdown_file(
                 texto=conteudo_completo,
                 nome_arquivo=arquivo.name,
@@ -271,13 +272,12 @@ def iniciar_sistema(caminho_str, pastas_ignoradas_tupla):
             todos_chunks.extend(chunks_nota)
             todos_metadados.extend(metadados_nota)
         
-        # Agora o seu banco de dados recebe chunks pequenos, super rápidos!
-        # OBS: Você pode precisar ajustar o método 'add_notes' do seu VectorStore 
-        # para aceitar ids customizados se ele não aceitava antes.
         vetor_db.add_chunks(ids=todos_ids, contents=todos_chunks, metadatas=todos_metadados)
+    else:
+        print("Cofre Obsidian já está 100% atualizado. Inicialização instantânea.")
     
+    # Passamos a instância do banco para o Chat
     return WikisidianChat(vetor_db, caminho_cofre)
-
 lista_fresca = tuple(CONFIG_ATUAL.get("ignored_folders", []))
 chat_engine_obsidian = iniciar_sistema(str(VAULT_PATH_DINAMICO), lista_fresca)
 
