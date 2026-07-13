@@ -46,8 +46,9 @@ def chunk_and_embed_book(json_filename: str):
             chunks.append(pedaco)
             # Metadados estritos: sem mistura de páginas
             metadatas.append({
-                "titulo": titulo,
-                "pagina": numero_pagina
+                "nome": titulo,
+                "pagina": numero_pagina,
+                "tipo_dado": "pagina"
             })
             # ID único que você pode usar para deletar ou atualizar depois
             ids.append(f"{titulo}_p{numero_pagina}_chunk{j}")
@@ -121,7 +122,7 @@ def embed_resumo_global(nome_livro: str, texto_resumo: str):
     # O PULO DO GATO: Metadado especial para o Roteador
     metadados = {
         "nome": nome_livro,
-        "is_resumo_global": "true", # Etiqueta invisível essencial
+        "tipo_dado": "resumo", # Etiqueta invisível essencial
         "path": f"books_data/summaries/RESUMO_{nome_livro}.txt"
     }
     

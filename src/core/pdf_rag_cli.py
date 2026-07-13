@@ -58,10 +58,6 @@ class HybridRagEngine:
         # ------------------------------------------------------------------
         # 🔎 PASSO 2: A BUSCA DIRECIONADA NO CHROMADB (LIVROS/ARTIGOS)
         # ------------------------------------------------------------------
-        
-        # Montagem inteligente do filtro 'where' do ChromaDB para múltiplos livros
-        # Se houver apenas 1 livro selecionado: {"nome": "Livro_X"}
-        # Se houver múltiplos: {"$or": [{"nome": "Livro_X"}, {"nome": "Livro_Y"}]}
         if len(book_titles) == 1:
             filtro_base = {"nome": book_titles[0]}
         elif len(book_titles) > 1:
@@ -70,37 +66,62 @@ class HybridRagEngine:
             filtro_base = {}
 
         if intencao == "GLOBAL":
-            # Forçamos o ChromaDB a filtrar estritamente o chunk que possui a flag 'is_resumo_global'
-            filtro_global = {"$and": [filtro_base, {"is_resumo_global": "true"}]} if filtro_base else {"is_resumo_global": "true"}
+            # Filtra APENAS resumos
+            filtro_llm = {"$and": [filtro_base, {"tipo_dado": "resumo"}]} if filtro_base else {"tipo_dado": "resumo"}
             
             res_livros = self.db_books.find_similar(
                 text=pergunta_usuario,
-                top_k=1, # O resumo global é um bloco único pré-computado
-                where_filter=filtro_global
+                top_k=1, 
+                where_filter=filtro_llm
             )
         else:
-            # Busca por similaridade tradicional (A Lupa) nos livros marcados
+            # Intenção ESPECÍFICA: Filtra APENAS páginas (O resumo nunca roubará a vaga!)
+            filtro_llm = {"$and": [filtro_base, {"tipo_dado": "pagina"}]} if filtro_base else {"tipo_dado": "pagina"}
+            
             res_livros = self.db_books.find_similar(
                 text=pergunta_usuario,
-                top_k=top_k_busca,
-                where_filter=filtro_base if filtro_base else None
+                top_k=5, # Volta ao valor normal, pois a busca está limpa
+                where_filter=filtro_llm
             )
 
-        # Processamento dos chunks de livros retornados
+        # Processamento dos chunks para a Inteligência Artificial
         if res_livros and res_livros.get('ids') and res_livros['ids'][0]:
             encontrou_algo = True
             contexto_str += "=== TRECHOS DOS LIVROS/ARTIGOS ===\n"
             
             for doc, meta in zip(res_livros['documents'][0], res_livros['metadatas'][0]):
                 nome_doc = meta.get('nome', 'Livro Desconhecido')
-                pagina_doc = meta.get('pagina', meta.get('numero_pagina', 'S/P'))
                 
-                contexto_str += f"[FONTE: {nome_doc}, p. {pagina_doc}]\n{doc}\n\n"
+                if intencao == "GLOBAL":
+                    contexto_str += f"[FONTE: RESUMO GLOBAL - {nome_doc}]\n{doc}\n\n"
+                    self.fontes_utilizadas.append({
+                        "nome": f"🗺️ Resumo: {nome_doc}",
+                        "texto": doc
+                    })
+                else:
+                    pagina_doc = meta.get('pagina', meta.get('numero_pagina', 'S/P'))
+                    contexto_str += f"[FONTE: {nome_doc}, p. {pagina_doc}]\n{doc}\n\n"
+                    self.fontes_utilizadas.append({
+                        "nome": f"📄 {nome_doc} - p. {pagina_doc}",
+                        "texto": doc
+                    })
+
+        # --- O PULO DO GATO (Injeção de UI) ---
+        # Se foi específico, a IA já recebeu as páginas. 
+        # Agora buscamos o Resumo de forma silenciosa apenas para colocar o botão na tela!
+        if intencao == "ESPECIFICO":
+            filtro_resumo = {"$and": [filtro_base, {"tipo_dado": "resumo"}]} if filtro_base else {"tipo_dado": "resumo"}
+            res_ui = self.db_books.find_similar(text=pergunta_usuario, top_k=1, where_filter=filtro_resumo)
+            
+            if res_ui and res_ui.get('ids') and res_ui['ids'][0]:
+                doc_resumo = res_ui['documents'][0][0]
+                meta_resumo = res_ui['metadatas'][0][0]
+                nome_doc_resumo = meta_resumo.get('nome', 'Livro Desconhecido')
                 
-                # Alimenta o visualizador da direita do app.py
+                # Injeta na lista de fontes utilizadas (UI), mas NÃO no contexto_str (IA)
                 self.fontes_utilizadas.append({
-                    "nome": f"{nome_doc} - p. {pagina_doc}",
-                    "texto": doc
+                    "nome": f"🗺️ Resumo: {nome_doc_resumo}",
+                    "texto": doc_resumo
                 })
 
         # ------------------------------------------------------------------
