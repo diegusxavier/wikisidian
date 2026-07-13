@@ -63,48 +63,59 @@ def chunk_and_embed_book(json_filename: str):
     print("Livro vetorizado e salvo no banco de dados com sucesso!")
 
 # === Função para fatiar arquivos Markdown do Obsidian (FUNÇÃO DESATIVADA, MAS MANTIDA PARA REFERÊNCIA) ===
-def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str):
+def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str, tamanho_chunk: int = 1500, overlap: int = 300):
     """
-    Fatia um arquivo Markdown respeitando seus cabeçalhos (#, ##, ###).
-    Retorna três listas: ids, chunks_de_texto, e metadados.
+    Fatia um arquivo Markdown com base na quantidade de caracteres e sobreposição (overlap),
+    ignorando a estrutura de cabeçalhos para evitar chunks muito pequenos.
     """
-    # 1. Divide por cabeçalhos (mantém a hierarquia do Obsidian)
-    headers_to_split_on = [
-        ("#", "Header 1"),
-        ("##", "Header 2"),
-        ("###", "Header 3"),
-    ]
-    markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+    chunks_nota = []
+    ids_nota = []
+    metadados_nota = []
     
-    # Isso gera "Documentos" do Langchain onde o metadado diz de qual cabeçalho veio
-    md_header_splits = markdown_splitter.split_text(texto)
-
-    # 2. Proteção extra: Se uma seção (embaixo de um ##) for gigante, fatiamos por caracteres
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200)
-    splits_finais = text_splitter.split_documents(md_header_splits)
-
-    chunks = []
-    metadados = []
-    ids = []
-
-    for i, split in enumerate(splits_finais):
-        chunks.append(split.page_content)
-        
-        # O SEGREDO ESTÁ AQUI: Salvamos o caminho da nota original para o Streamlit poder ler a nota inteira depois!
-        meta = {
+    tamanho_texto = len(texto)
+    inicio = 0
+    contador_chunk = 0
+    
+    # Se a nota for muito pequena, salva ela inteira de uma vez
+    if tamanho_texto <= tamanho_chunk:
+        chunks_nota.append(texto)
+        ids_nota.append(f"{nome_arquivo}_unico")
+        metadados_nota.append({
             "nome": nome_arquivo,
-            "caminho": str(caminho_completo)
-        }
-        
-        # Adicionamos os cabeçalhos (se a IA achar algo no "## Júlio César", ela saberá o título da seção)
-        meta.update(split.metadata)
-        
-        metadados.append(meta)
-        
-        # Criamos um ID único para esse pedaço (Ex: Roma.md_chunk_0)
-        ids.append(f"{nome_arquivo}_chunk_{i}")
+            "path": caminho_completo,
+            "tipo_dado": "nota" # Mantendo a nossa padronização de Tipagem Forte!
+        })
+        return ids_nota, chunks_nota, metadados_nota
 
-    return ids, chunks, metadados
+    # Lógica de Janela Deslizante (Sliding Window) para notas grandes
+    while inicio < tamanho_texto:
+        # Pega o bloco de texto do tamanho limite
+        fim = inicio + tamanho_chunk
+        pedaco = texto[inicio:fim]
+        
+        # Opcional (porém recomendado): Não cortar a palavra no meio.
+        # Se não chegamos no fim do texto, recuamos até encontrar um espaço ou quebra de linha
+        if fim < tamanho_texto:
+            ultimo_espaco = max(pedaco.rfind(' '), pedaco.rfind('\n'))
+            if ultimo_espaco != -1:
+                fim = inicio + ultimo_espaco
+                pedaco = texto[inicio:fim]
+        
+        # Só adiciona se o pedaço tiver conteúdo real
+        if pedaco.strip():
+            chunks_nota.append(pedaco.strip())
+            ids_nota.append(f"{nome_arquivo}_chunk_{contador_chunk}")
+            metadados_nota.append({
+                "nome": nome_arquivo,
+                "path": caminho_completo,
+                "tipo_dado": "nota" 
+            })
+            contador_chunk += 1
+            
+        # O próximo chunk começa recuando o valor do overlap para não perder contexto
+        inicio = fim - overlap
+        
+    return ids_nota, chunks_nota, metadados_nota
 
 # ==========================================
 # BLOCO DE TESTE RÁPIDO
