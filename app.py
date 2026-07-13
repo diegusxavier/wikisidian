@@ -436,23 +436,27 @@ with aba_chat_obsidian:
 with aba_chat_livros:
     
     # Adicionamos os controles superiores da aba
-    col1, col2, col3, col4 = st.columns(4)
+    # Mudamos para 5 colunas
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.write("")
         if st.button("✨ Nova Pesquisa", key="btn_novo_livro", use_container_width=True):
-            st.session_state.book_messages = []
+            st.session_Sstate.book_messages = []
             st.session_state.conv_id_livros = None
             st.session_state.chunk_visualizado = None
             st.rerun() 
     with col2:
         st.write("")
-        conversa_temp_livro = st.toggle("Modo Temporário", value=False, key="tg_tmp_livro", help="Não salva no histórico.")
+        conversa_temp_livro = st.toggle("Modo Temporário", value=False, key="tg_tmp_livro")
     with col3:
         st.write("")
         modo_estrito_livro = st.toggle("Modo Acadêmico Estrito", value=True, key="tg_estrito_livro")
     with col4:
         st.write("")
         incluir_obsidian = st.toggle("🔗 Cruzar com Obsidian", value=False, key="tg_obs_livro")
+    with col5:
+        # Novo Slider para o Top K
+        top_k_livros = st.slider("Trechos (Top-K)", min_value=5, max_value=9, value=5, step=1, key="slider_top_k_livros")
 
     st.divider()
 
@@ -514,7 +518,8 @@ with aba_chat_livros:
                         book_titles=st.session_state.livros_selecionados,
                         modo_estrito=modo_estrito_livro,
                         incluir_obsidian=incluir_obsidian,
-                        historico=historico_para_ia
+                        historico=historico_para_ia,
+                        top_k_busca=top_k_livros
                     )
                 )
 

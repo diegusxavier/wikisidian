@@ -16,7 +16,7 @@ class HybridRagEngine:
         self.fontes_utilizadas = []
         self.notas_contexto_hibrido = []
 
-    def query(self, pergunta_usuario: str, book_titles: list, modo_estrito: bool, incluir_obsidian: bool, historico: list = None) -> Generator[str, None, None]:
+    def query(self, pergunta_usuario: str, book_titles: list, modo_estrito: bool, incluir_obsidian: bool, historico: list = None, top_k_busca: int = 5) -> Generator[str, None, None]:
         """
         Método principal de consulta que atua como um Roteador Cognitivo entre buscas Globais e Específicas.
         """
@@ -26,8 +26,6 @@ class HybridRagEngine:
         self.fontes_utilizadas = []
         self.notas_contexto_hibrido = []
         
-        # Define o limite de busca padronizado para as consultas locais
-        top_k_busca = 5
 
         # ------------------------------------------------------------------
         # 🔀 PASSO 1: O ROTEADOR (Classificação de Intenção)
