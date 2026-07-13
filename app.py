@@ -235,7 +235,7 @@ with st.sidebar:
 # ==========================================
 # 3. ÁREA PRINCIPAL E INICIALIZAÇÃO
 # ==========================================
-st.title("Wikisidian - Gestor de Conhecimento")
+st.title("🧠 Wikisidian - Gestor de Conhecimento")
 
 if not VAULT_PATH_DINAMICO or not VAULT_PATH_DINAMICO.exists():
     st.warning("👈 Por favor, selecione a pasta válida do seu cofre do Obsidian no menu lateral para iniciar.")
