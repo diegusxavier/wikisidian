@@ -390,7 +390,7 @@ with aba_chat_obsidian:
 with aba_chat_livros:
     
     # Adicionamos os controles superiores da aba
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.write("")
         if st.button("✨ Nova Pesquisa", key="btn_novo_livro", use_container_width=True):
@@ -407,6 +407,9 @@ with aba_chat_livros:
     with col4:
         st.write("")
         incluir_obsidian = st.toggle("🔗 Cruzar com Obsidian", value=False, key="tg_obs_livro")
+    with col5:
+        # Novo Slider para o Top K
+        top_k_livros = st.slider("Trechos (Top-K)", min_value=5, max_value=9, value=5, step=1, key="slider_top_k_livros")
 
     st.divider()
 
@@ -442,6 +445,7 @@ with aba_chat_livros:
                     engine_livros.query(
                         pergunta_usuario=prompt_livro,
                         book_titles=st.session_state.livros_selecionados,
+                        top_k=top_k_livros,
                         modo_estrito=modo_estrito_livro,
                         incluir_obsidian=incluir_obsidian,
                         historico=historico_para_ia

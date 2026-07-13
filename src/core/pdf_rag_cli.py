@@ -20,7 +20,7 @@ class HybridRagEngine:
         self, 
         pergunta_usuario: str, 
         book_titles: list = None,
-        top_k: int = 4, 
+        top_k: int = 5, 
         modo_estrito: bool = True,
         incluir_obsidian: bool = False,
         historico: list = None
@@ -119,7 +119,6 @@ class HybridRagEngine:
         book_titles_str = ", ".join(book_titles) if book_titles else "Todos"
         print(f"Processando pergunta (Livros: {book_titles_str} | Obsidian: {incluir_obsidian} | Estrito: {modo_estrito})...")
         
-        # Chamada à IA com streaming de resposta
         try:
             resposta = completion(
                 model=self.modelo,
