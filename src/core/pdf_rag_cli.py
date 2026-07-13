@@ -7,13 +7,15 @@ from src.core.embedder import VectorStore
 # Carrega as variaveis do arquivo .env
 load_dotenv()
 
+# Classe que gerencia a conversa com a IA, incluindo busca de notas relevantes, montagem do contexto, histórico e envio para o modelo.
 class HybridRagEngine:
     def __init__(self):
-        # Conecta nas duas gavetas
+        # Conecta nas duas gavetas do banco vetorial: uma para livros PDF e outra para notas do Obsidian
         self.db_books = VectorStore(collection_name="pdf_books")
         self.db_obsidian = VectorStore(collection_name="obsidian_notes") # Confirme se é este o nome da sua coleção de notas
         self.modelo = os.getenv("LLM_MODEL", "gemini/gemini-3.1-flash-lite")
 
+    # Método principal que processa a pergunta do usuário, busca nos bancos vetoriais e interage com a IA
     def query(
         self, 
         pergunta_usuario: str, 
@@ -27,25 +29,25 @@ class HybridRagEngine:
         contexto_str = ""
         encontrou_algo = False
         
-        # NOVO: Resetamos as fontes a cada nova pergunta para guardar os chunks
+        # Inicializa a lista de fontes utilizadas para rastrear de onde cada trecho veio
         self.fontes_utilizadas = [] 
 
-        # ==========================================
-        # 1. BUSCA NOS LIVROS
-        # ==========================================
+        # Busca nos livros PDF (Se houver títulos especificados)
         filtro_livro = None
         if book_titles:
             if len(book_titles) == 1:
                 filtro_livro = {"titulo": book_titles[0]}
             else:
                 filtro_livro = {"titulo": {"$in": book_titles}}
-
+        
+        # Busca nos livros PDF com base no filtro definido (ou sem filtro se book_titles for None)
         res_livros = self.db_books.find_similar(
             text=pergunta_usuario, 
             top_k=top_k, 
             where_filter=filtro_livro
         )
 
+        # Se encontrou resultados nos livros, monta o contexto e registra as fontes
         if res_livros['ids'] and res_livros['ids'][0]:
             encontrou_algo = True
             contexto_str += "=== TRECHOS DE LIVROS ===\n"
@@ -55,14 +57,13 @@ class HybridRagEngine:
                 
                 contexto_str += f"[LIVRO: {titulo} | PÁGINA: {pagina}]\n{doc}\n\n"
                 
-                # NOVO: Salvamos o título, a página e o texto cru do chunk!
+                # Salvamos o título, a página e o texto cru do chunk
                 self.fontes_utilizadas.append({
                     "nome": f"{titulo} (p. {pagina})",
                     "texto": doc
                 })
-        # ==========================================
-        # 2. BUSCA NO OBSIDIAN (Se ativado)
-        # ==========================================
+
+        # Busca no Obsidian (Se ativado)
         if incluir_obsidian:
             res_obsidian = self.db_obsidian.find_similar(
                 text=pergunta_usuario, 
@@ -77,18 +78,14 @@ class HybridRagEngine:
                     nome_nota = meta.get('source', 'Nota Desconhecida') 
                     contexto_str += f"[NOTA OBSIDIAN: {nome_nota}]\n{doc}\n\n"
 
-        # ==========================================
-        # 3. VERIFICAÇÃO DE DADOS
-        # ==========================================
+        # Se não encontrou nada em nenhum dos bancos, retorna uma mensagem amigável
         if not encontrou_algo and modo_estrito:
             yield "Desculpe, não encontrei nenhuma informação sobre esse assunto nos livros ou notas selecionadas."
             return
         elif not encontrou_algo:
             contexto_str = "Nenhum contexto encontrado no banco de dados local."
 
-        # ==========================================
-        # 4. TRATAMENTO DO HISTÓRICO
-        # ==========================================
+        # Trata o histórico da conversa
         historico_str = ""
         if historico:
             historico_str = "HISTÓRICO RECENTE DA CONVERSA:\n"
@@ -97,9 +94,7 @@ class HybridRagEngine:
                 historico_str += f"{remetente}: {msg.get('content', '')}\n"
             historico_str += "\n"
 
-        # ==========================================
-        # 5. CONFIGURAÇÃO DO PROMPT E LLM
-        # ==========================================
+        # Define o prompt do sistema e do usuário com base no modo estrito ou híbrido
         if modo_estrito:
             temperatura = 0.2
             prompt_sistema = """Você é um assistente de pesquisa acadêmica rigoroso.
@@ -120,9 +115,11 @@ class HybridRagEngine:
 
         prompt_usuario = f"CONTEXTO RECUPERADO:\n{contexto_str}\n\n{historico_str}PERGUNTA: {pergunta_usuario}\n"
 
+        # Montagem da string de títulos de livros para exibição
         book_titles_str = ", ".join(book_titles) if book_titles else "Todos"
         print(f"Processando pergunta (Livros: {book_titles_str} | Obsidian: {incluir_obsidian} | Estrito: {modo_estrito})...")
         
+        # Chamada à IA com streaming de resposta
         try:
             resposta = completion(
                 model=self.modelo,

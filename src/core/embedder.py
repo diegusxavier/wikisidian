@@ -3,15 +3,15 @@ from chromadb.utils import embedding_functions
 from pathlib import Path
 
 class VectorStore:
-    # ALTERAÇÃO 1: Adicionamos 'collection_name' aqui, mantendo 'obsidian_notes' como padrão
+    # Classe que gerencia o banco de dados vetorial. Ela é responsável por criar a coleção, adicionar notas e buscar notas similares.
     def __init__(self, db_path: str = "vector_store", collection_name: str = "obsidian_notes"):
         self.client = chromadb.PersistentClient(path=db_path)
         
+        # Embedding function é a função que transforma texto em vetores. Aqui estamos usando o modelo MiniLM, que é rápido e suporta múltiplos idiomas.
         self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name="paraphrase-multilingual-MiniLM-L12-v2"
         )
         
-        # ALTERAÇÃO 2: Agora o nome da coleção é dinâmico. 
         # Assim você pode criar VectorStore(collection_name="pdf_books")
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
@@ -19,7 +19,7 @@ class VectorStore:
             metadata={"hnsw:space": "cosine"}
         )
 
-    # MANTER INTACTO: Este é o seu método antigo, que serve para as notas do Obsidian
+    # Método para adicionar notas ao banco vetorial. Ele recebe uma lista de arquivos e seus conteúdos correspondentes.
     def add_notes(self, files: list[Path], contents: list[str]):
         # Quando passamos o 'contents' (que é uma lista de strings gigantes
         # com os textos das suas notas), o ChromaDB pega aquele modelo MiniLM
@@ -34,8 +34,7 @@ class VectorStore:
         )
         print(f"{len(files)} notas processadas e salvas no banco vetorial!")
 
-    # ALTERAÇÃO 3: Criamos um método novo, focado em receber os dados crus do livro.
-    # Ele exige que você passe a lista de metadados para garantir a citação acadêmica.
+    # Método para adicionar pedaços genéricos de texto ao banco.
     def add_chunks(self, ids: list[str], contents: list[str], metadatas: list[dict]):
         """
         Adiciona pedaços genéricos de texto (como páginas de um PDF) ao banco.
@@ -48,8 +47,7 @@ class VectorStore:
         )
         print(f"{len(contents)} blocos de texto salvos com sucesso!")
 
-    # ALTERAÇÃO 4: Adicionamos o parâmetro 'where'. Isso é o que permite você 
-    # filtrar a busca para procurar apenas num livro específico, resolvendo seu receio.
+    # Método para buscar notas similares. Ele recebe um texto e retorna as notas mais próximas no espaço vetorial.
     def find_similar(self, text: str, top_k: int = 3, where_filter: dict = None):
         """
         Busca notas similares. Se 'where_filter' for passado, 
@@ -67,7 +65,7 @@ class VectorStore:
         results = self.collection.query(**query_args)
         return results
     
-    # MANTER INTACTO: Sua lógica original para o Obsidian
+    # Método para sincronizar o banco de dados vetorial com os arquivos atuais. Ele remove do banco as notas que foram deletadas do cofre.
     def sync_db(self, current_files: list[Path]):
         existing_ids = self.collection.get()['ids']
         current_names = [f.name for f in current_files]

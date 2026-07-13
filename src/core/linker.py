@@ -4,6 +4,7 @@ from src.core.embedder import VectorStore
 from src.config import MARCADOR_IA
 
 class ObsidianLinker:
+    # Classe que gerencia a injeção de links no Obsidian. Ela lê o conteúdo da nota, identifica links já existentes, busca novas notas similares no banco vetorial e atualiza o arquivo sem duplicar informações.
     def __init__(self, vector_store: VectorStore):
         # O Linker precisa receber o "cérebro" (banco vetorial) já carregado
         self.vs = vector_store
@@ -119,5 +120,5 @@ class ObsidianLinker:
             
         except Exception as e:
             # Caso algum arquivo esteja corrompido ou bloqueado, o programa não trava inteiro
-            print(f"❌ Erro ao processar '{file_path.name}': {e}")
+            print(f"Erro ao processar '{file_path.name}': {e}")
             return False

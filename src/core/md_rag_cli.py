@@ -10,6 +10,7 @@ from typing import Generator
 # Carrega as variaveis do arquivo .env para a memoria
 load_dotenv()
 
+# Classe que gerencia a conversa com a IA, incluindo busca de notas relevantes, montagem do contexto, histórico e envio para o modelo.
 class WikisidianChat:
     def __init__(self, vector_store: VectorStore, vault_path: Path):
         self.vs = vector_store
@@ -47,10 +48,11 @@ class WikisidianChat:
             yield "Desculpe, não encontrei nenhuma nota relevante no seu cofre sobre esse assunto."
             return
 
-        # 2. Montagem do Contexto
+        # Montagem do Contexto 
         contexto_str = ""
         self.notas_contexto = [] 
 
+        # Se encontrou notas, vamos extrair o texto de cada uma e montar o contexto
         if ids_encontrados:
             for nome_nota, metadado in zip(ids_encontrados, metadados_encontrados):
                 caminho_real = metadado['path']
@@ -66,7 +68,7 @@ class WikisidianChat:
         else:
             contexto_str = "Nenhuma nota encontrada no cofre sobre este tópico específico."
 
-        # --- NOVO: Tratamento do Histórico Conversacional ---
+        # Histórico da conversa (opcional)
         historico_str = ""
         if historico:
             historico_str = "HISTÓRICO RECENTE DA CONVERSA (Para contexto):\n"
@@ -78,7 +80,7 @@ class WikisidianChat:
                 historico_str += f"\n{remetente}: {conteudo}\n"
             historico_str += "\n"
 
-        # 3. O Prompt Dinâmico
+        # Prompt Dinâmico
         if modo_estrito:
             temperatura = 0.2
             prompt_sistema = """Voce e o Wikisidian, um assistente pessoal.
@@ -100,7 +102,7 @@ class WikisidianChat:
         # Injetamos o histórico antes da pergunta atual
         prompt_usuario = f"""CONTEXTO (Notas do usuario):\n{contexto_str}\n\n{historico_str}PERGUNTA DO USUARIO: {pergunta_usuario}\n"""
 
-        # 4. A Chamada à IA
+        # Chamada à IA
         print(f"Wikisidian a processar a pergunta (Estrito: {modo_estrito})...")
         try:
             # --- DEBUG: Ver o que a IA recebe ---
@@ -119,6 +121,7 @@ class WikisidianChat:
                 stream=True 
             )
             
+            # Gerador de respostas em tempo real
             for pedaco in resposta:
                 conteudo = pedaco.choices[0].delta.content
                 if conteudo:
