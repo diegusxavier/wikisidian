@@ -248,33 +248,35 @@ def iniciar_sistema(caminho_str, pastas_ignoradas_tupla):
     
     vetor_db = VectorStore(collection_name="obsidian_notes")
     
-    # O seu sync_db provavelmente remove do ChromaDB as notas que você apagou do HD.
-    # Pode manter.
-    vetor_db.sync_db(arquivos_md) 
+    # O sync devolve APENAS o que precisa ser lido!
+    arquivos_pendentes = vetor_db.sync_db(arquivos_md) 
     
-    if arquivos_md:
+    if arquivos_pendentes:
         todos_ids = []
         todos_chunks = []
         todos_metadados = []
         
-        # Para cada nota no seu Obsidian, nós fatiamos antes de enviar pro banco
-        for arquivo in arquivos_md:
+        # Só faz o loop no que é Novo ou Modificado
+        for arquivo in arquivos_pendentes:
             conteudo_completo = read_file_content(arquivo)
+            mtime_arquivo = arquivo.stat().st_mtime # Coleta a data do Windows
             
             ids_nota, chunks_nota, metadados_nota = chunk_markdown_file(
                 texto=conteudo_completo,
                 nome_arquivo=arquivo.name,
-                caminho_completo=str(arquivo)
+                caminho_completo=str(arquivo),
+                mtime=mtime_arquivo # Passa o carimbo pro chunker
             )
             
             todos_ids.extend(ids_nota)
             todos_chunks.extend(chunks_nota)
             todos_metadados.extend(metadados_nota)
         
-        # Agora o seu banco de dados recebe chunks pequenos, super rápidos!
-        # OBS: Você pode precisar ajustar o método 'add_notes' do seu VectorStore 
-        # para aceitar ids customizados se ele não aceitava antes.
-        vetor_db.add_chunks(ids=todos_ids, contents=todos_chunks, metadatas=todos_metadados)
+        if todos_ids:
+            vetor_db.add_chunks(ids=todos_ids, contents=todos_chunks, metadatas=todos_metadados)
+    else:
+        # Se você rodar o app e não tiver editado nada no Obsidian, ele pula direto pra cá em 0.1 segundo!
+        print("Cofre já está 100% sincronizado com o Banco Vetorial. Pulando leitura.")
     
     return WikisidianChat(vetor_db, caminho_cofre)
 

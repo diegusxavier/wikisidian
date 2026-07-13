@@ -62,8 +62,8 @@ def chunk_and_embed_book(json_filename: str):
     
     print("Livro vetorizado e salvo no banco de dados com sucesso!")
 
-# === Função para fatiar arquivos Markdown do Obsidian (FUNÇÃO DESATIVADA, MAS MANTIDA PARA REFERÊNCIA) ===
-def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str, tamanho_chunk: int = 1500, overlap: int = 300):
+# Função para fatiar arquivos Markdown do Obsidian
+def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str, mtime: float, tamanho_chunk: int = 1500, overlap: int = 300):    
     """
     Fatia um arquivo Markdown com base na quantidade de caracteres e sobreposição (overlap),
     ignorando a estrutura de cabeçalhos para evitar chunks muito pequenos.
@@ -83,7 +83,8 @@ def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str, ta
         metadados_nota.append({
             "nome": nome_arquivo,
             "path": caminho_completo,
-            "tipo_dado": "nota" # Mantendo a nossa padronização de Tipagem Forte!
+            "tipo_dado": "nota", # Mantendo a nossa padronização de Tipagem Forte!
+            "mtime": mtime
         })
         return ids_nota, chunks_nota, metadados_nota
 
@@ -108,7 +109,8 @@ def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str, ta
             metadados_nota.append({
                 "nome": nome_arquivo,
                 "path": caminho_completo,
-                "tipo_dado": "nota" 
+                "tipo_dado": "nota", 
+                "mtime": mtime
             })
             contador_chunk += 1
             

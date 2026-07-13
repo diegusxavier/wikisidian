@@ -66,13 +66,53 @@ class VectorStore:
         return results
     
     # Método para sincronizar o banco de dados vetorial com os arquivos atuais. Ele remove do banco as notas que foram deletadas do cofre.
-    def sync_db(self, current_files: list[Path]):
-        existing_ids = self.collection.get()['ids']
-        current_names = [f.name for f in current_files]
-        to_delete = [id for id in existing_ids if id not in current_names]
-        
-        if to_delete:
-            print(f"Limpando {len(to_delete)} notas deletadas do banco vetorial...")
-            self.collection.delete(ids=to_delete)
-        else:
-            print("Banco vetorial sincronizado com o cofre.")
+    def sync_db(self, current_files: list[Path]) -> list[Path]:
+        """
+        Sincronização Incremental: Identifica arquivos novos, modificados e deletados.
+        Retorna apenas a lista de arquivos que precisam ser processados (novos ou modificados).
+        """
+        # 1. Coleta tudo que está no banco de dados hoje
+        db_data = self.collection.get(include=["metadatas"])
+        db_metadatas = db_data.get("metadatas", [])
+        db_ids = db_data.get("ids", [])
+
+        # Cria um "dicionário da memória": { "C:/caminho/nota.md": 17150000.0 }
+        memoria_db = {}
+        for meta in db_metadatas:
+            if meta and "path" in meta and "mtime" in meta:
+                caminho = meta["path"]
+                if caminho not in memoria_db:
+                    memoria_db[caminho] = meta["mtime"]
+
+        caminhos_hd = {str(f): f for f in current_files}
+        arquivos_para_processar = []
+        ids_para_deletar = []
+
+        # 2. Varredura 1: Verifica o que foi Deletado ou Modificado
+        for caminho_db, mtime_db in memoria_db.items():
+            if caminho_db not in caminhos_hd:
+                # O arquivo sumiu do HD. Deleta todos os chunks dele do banco.
+                print(f"Deletando arquivo removido do Obsidian: {Path(caminho_db).name}")
+                ids_para_deletar.extend([db_ids[i] for i, m in enumerate(db_metadatas) if m and m.get("path") == caminho_db])
+            else:
+                # O arquivo existe. Vamos ver se a data do HD é mais nova que a data do Banco.
+                arquivo_hd = caminhos_hd[caminho_db]
+                mtime_hd = arquivo_hd.stat().st_mtime
+                if mtime_hd > mtime_db:
+                    print(f"Arquivo modificado detectado: {arquivo_hd.name}")
+                    # Apaga os pedaços velhos para não duplicar informações
+                    ids_para_deletar.extend([db_ids[i] for i, m in enumerate(db_metadatas) if m and m.get("path") == caminho_db])
+                    # Manda processar a versão nova
+                    arquivos_para_processar.append(arquivo_hd)
+
+        if ids_para_deletar:
+            self.collection.delete(ids=ids_para_deletar)
+
+        # 3. Varredura 2: Verifica o que é totalmente Novo
+        for caminho_hd, arquivo in caminhos_hd.items():
+            if caminho_hd not in memoria_db and arquivo not in arquivos_para_processar:
+                print(f"Novo arquivo detectado: {arquivo.name}")
+                arquivos_para_processar.append(arquivo)
+
+        print(f"Sincronização concluída: {len(arquivos_para_processar)} arquivos precisam ser vetorizados.")
+        return arquivos_para_processar
