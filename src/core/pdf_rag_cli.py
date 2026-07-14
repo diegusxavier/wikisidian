@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from litellm import completion
 from typing import Generator
 from src.core.embedder import VectorStore
+from pathlib import Path
 
 # Carrega as variaveis do arquivo .env
 load_dotenv()
@@ -30,25 +31,66 @@ class HybridRagEngine:
         encontrou_algo = False
         
         # Inicializa a lista de fontes utilizadas para rastrear de onde cada trecho veio
-        self.fontes_utilizadas = [] 
+        # Inicializa a lista de fontes utilizadas para rastrear de onde cada trecho veio (Proteção da master)
+        self.fontes_utilizadas = []
 
-        # Busca nos livros PDF (Se houver títulos especificados)
-        filtro_livro = None
-        if book_titles:
-            if len(book_titles) == 1:
-                filtro_livro = {"titulo": book_titles[0]}
-            else:
-                filtro_livro = {"titulo": {"$in": book_titles}}
+        # ---------------------------------------------------------
+        # 🔎 PASSO 1: O ROTEADOR (Classificação de Intenção)
+        # ---------------------------------------------------------
+        prompt_roteador = f"""
+        Analise a pergunta do usuário sobre um livro ou artigo e classifique-a em uma das duas categorias abaixo.
+        Responda APENAS com a palavra 'GLOBAL' ou 'ESPECIFICO'. Não adicione pontos, explicações ou nenhuma outra palavra.
+
+        - GLOBAL: Se a pergunta pede um resumo geral, a tese principal, os objetivos do documento, a lista de capítulos/contos, a conclusão ou análises que exigem a visão do todo.
+        - ESPECIFICO: Se a pergunta busca um fato isolado, um dado numérico, o nome de um personagem, uma definição matemática isolada ou um detalhe cirúrgico.
+
+        Pergunta do usuário: "{pergunta_usuario}"
+        Resposta:"""
+
+        try:
+            resposta_roteador = completion(
+                model=self.modelo,
+                messages=[{"role": "user", "content": prompt_roteador}],
+                temperature=0.0,
+                stream=False
+            )
+            intencao = resposta_roteador.choices[0].message.content.strip().upper()
+        except Exception:
+            intencao = "ESPECIFICO"
+
+        print(f"🕵️ Roteador Wikisidian: Pergunta classificada como [{intencao}]")
+
+        # A BUSCA DIRECIONADA NO CHROMADB (LIVROS/ARTIGOS)
         
-        # Busca nos livros PDF com base no filtro definido (ou sem filtro se book_titles for None)
-        res_livros = self.db_books.find_similar(
-            text=pergunta_usuario, 
-            top_k=top_k, 
-            where_filter=filtro_livro
-        )
+        filtro_base = {}
+        if book_titles:
+            # Usa a sintaxe limpa da master para múltiplos títulos
+            if len(book_titles) == 1:
+                filtro_base = {"titulo": book_titles[0]}
+            else:
+                filtro_base = {"titulo": {"$in": book_titles}}
 
-        # Se encontrou resultados nos livros, monta o contexto e registra as fontes
-        if res_livros['ids'] and res_livros['ids'][0]:
+        if intencao == "GLOBAL":
+            # Filtra APENAS resumos
+            filtro_llm = {"$and": [filtro_base, {"tipo_dado": "resumo"}]} if filtro_base else {"tipo_dado": "resumo"}
+            
+            res_livros = self.db_books.find_similar(
+                text=pergunta_usuario,
+                top_k=1,
+                where_filter=filtro_llm
+            )
+        else:
+            # Intenção ESPECÍFICA: Filtra APENAS páginas
+            filtro_llm = {"$and": [filtro_base, {"tipo_dado": "pagina"}]} if filtro_base else {"tipo_dado": "pagina"}
+            
+            res_livros = self.db_books.find_similar(
+                text=pergunta_usuario,
+                top_k=top_k, # Volta ao valor normal passado como parâmetro
+                where_filter=filtro_llm
+            )
+
+        # Processamento dos chunks para a Inteligência Artificial
+        if res_livros and res_livros.get('ids') and res_livros['ids'][0]:
             encontrou_algo = True
             contexto_str += "=== TRECHOS DE LIVROS ===\n"
             for doc, meta in zip(res_livros['documents'][0], res_livros['metadatas'][0]):
@@ -73,10 +115,35 @@ class HybridRagEngine:
             if res_obsidian['ids'] and res_obsidian['ids'][0]:
                 encontrou_algo = True
                 contexto_str += "=== NOTAS DO OBSIDIAN ===\n"
-                for doc, meta in zip(res_obsidian['documents'][0], res_obsidian['metadatas'][0]):
-                    # Ajuste 'source' ou 'titulo' de acordo com o metadado que você usa nas notas
-                    nome_nota = meta.get('source', 'Nota Desconhecida') 
-                    contexto_str += f"[NOTA OBSIDIAN: {nome_nota}]\n{doc}\n\n"
+
+                ids_obsidian = res_obsidian['ids'][0]
+                metas_obsidian = res_obsidian['metadatas'][0]
+                notas_vistas = set()
+
+
+                for meta, id_nota in zip(metas_obsidian, ids_obsidian):
+                    caminho_real = meta.get('path', meta.get('caminho', meta.get('source', '')))
+
+                    if caminho_real and caminho_real not in notas_vistas:
+                        notas_vistas.add(caminho_real)
+                        
+                        # Nome limpo do arquivo sem a extensão (bug das duas linhas corrigido aqui)
+                        nome_real = Path(caminho_real).stem
+
+                        try:
+                            with open(caminho_real, 'r', encoding='utf-8') as f:
+                                texto_completo = f.read()
+                                # Tenta remover o frontmatter do Obsidian (YAML)
+                                texto_limpo = texto_completo.split("---")[0].strip() if "---" in texto_completo else texto_completo
+                        except Exception:
+                            texto_limpo = "(Erro ao carregar o conteúdo da nota)"
+
+                        contexto_str += f"\n--- INÍCIO DA NOTA: {nome_real} ---\n{texto_limpo}\n--- FIM DA NOTA ---\n"
+
+                        self.notas_contexto_hibrido.append({
+                            "nome": nome_real,
+                            "caminho": caminho_real
+                        })
 
         # Se não encontrou nada em nenhum dos bancos, retorna uma mensagem amigável
         if not encontrou_algo and modo_estrito:

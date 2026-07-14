@@ -63,10 +63,11 @@ def chunk_and_embed_book(json_filename: str):
     print("Livro vetorizado e salvo no banco de dados com sucesso!")
 
 # Função para fatiar arquivos Markdown do Obsidian
-def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str, mtime: float, tamanho_chunk: int = 1500, overlap: int = 300):    
+def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str, mtime: float, tamanho_chunk: int = 1500, overlap: int = 300):
     """
     Fatia um arquivo Markdown com base na quantidade de caracteres e sobreposição (overlap),
-    ignorando a estrutura de cabeçalhos para evitar chunks muito pequenos.
+    garantindo blocos de tamanho uniforme. Injeta o título do documento
+    no início de cada chunk para evitar a "perda de contexto" na vetorização.
     """
     chunks_nota = []
     ids_nota = []
@@ -76,17 +77,56 @@ def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str, mt
     inicio = 0
     contador_chunk = 0
     
+    # Remove a extensão .md para ficar um título limpo no enriquecimento
+    titulo_limpo = nome_arquivo.replace(".md", "")
+    
     # Se a nota for muito pequena, salva ela inteira de uma vez
     if tamanho_texto <= tamanho_chunk:
-        chunks_nota.append(texto)
+        chunk_enriquecido = f"[Documento: {titulo_limpo}]\n{texto}"
+        chunks_nota.append(chunk_enriquecido)
         ids_nota.append(f"{nome_arquivo}_unico")
         metadados_nota.append({
             "nome": nome_arquivo,
-            "path": caminho_completo,
+            "path": str(caminho_completo),
+            "caminho": str(caminho_completo), # Mantido da branch feat para o app.py
             "tipo_dado": "nota", # Mantendo a nossa padronização de Tipagem Forte!
             "mtime": mtime
         })
         return ids_nota, chunks_nota, metadados_nota
+
+    # Lógica de Janela Deslizante (Sliding Window) para notas grandes
+    while inicio < tamanho_texto:
+        # Pega o bloco de texto do tamanho limite
+        fim = inicio + tamanho_chunk
+        pedaco = texto[inicio:fim]
+        
+        # Não cortar a palavra no meio
+        if fim < tamanho_texto:
+            ultimo_espaco = max(pedaco.rfind(' '), pedaco.rfind('\n'))
+            if ultimo_espaco != -1:
+                fim = inicio + ultimo_espaco
+                pedaco = texto[inicio:fim]
+        
+        # Só adiciona se o pedaço tiver conteúdo real
+        if pedaco.strip():
+            # O PULO DO GATO (Enriquecimento da branch feat acoplado aqui): 
+            chunk_enriquecido = f"[Documento: {titulo_limpo}]\n{pedaco.strip()}"
+            chunks_nota.append(chunk_enriquecido)
+            
+            ids_nota.append(f"{nome_arquivo}_chunk_{contador_chunk}")
+            metadados_nota.append({
+                "nome": nome_arquivo,
+                "path": str(caminho_completo),
+                "caminho": str(caminho_completo), # Mantido da branch feat
+                "tipo_dado": "nota", 
+                "mtime": mtime
+            })
+            contador_chunk += 1
+            
+        # O próximo chunk começa recuando o valor do overlap para não perder contexto
+        inicio = fim - overlap
+        
+    return ids_nota, chunks_nota, metadados_nota
 
     # Lógica de Janela Deslizante (Sliding Window) para notas grandes
     while inicio < tamanho_texto:
