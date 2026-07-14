@@ -93,17 +93,34 @@ class HybridRagEngine:
         if res_livros and res_livros.get('ids') and res_livros['ids'][0]:
             encontrou_algo = True
             contexto_str += "=== TRECHOS DE LIVROS ===\n"
+            titulos_processados = set() # NOVO: Rastrear quais livros foram usados
+
             for doc, meta in zip(res_livros['documents'][0], res_livros['metadatas'][0]):
                 titulo = meta.get('titulo', 'Desconhecido')
                 pagina = meta.get('pagina', '?')
+                titulos_processados.add(titulo) # Salva o nome do livro
                 
                 contexto_str += f"[LIVRO: {titulo} | PÁGINA: {pagina}]\n{doc}\n\n"
                 
-                # Salvamos o título, a página e o texto cru do chunk
+                # Salvamos o título, a página e o texto cru do chunk para a UI
                 self.fontes_utilizadas.append({
                     "nome": f"{titulo} (p. {pagina})",
                     "texto": doc
                 })
+
+            # NOVO: Se a busca foi ESPECÍFICA, injeta o Resumo Global como botão extra na UI
+            if intencao == "ESPECIFICO":
+                for titulo in titulos_processados:
+                    caminho_resumo = Path(f"books_data/summaries/RESUMO_{titulo}.txt")
+                    if caminho_resumo.exists():
+                        with open(caminho_resumo, "r", encoding="utf-8") as f:
+                            texto_resumo = f.read()
+                        
+                        # Anexa apenas na variável visual (não entra no contexto_str da IA)
+                        self.fontes_utilizadas.append({
+                            "nome": f"📘 Resumo Global ({titulo})",
+                            "texto": texto_resumo
+                        })
 
         # Busca no Obsidian (Se ativado)
         if incluir_obsidian:
@@ -140,7 +157,7 @@ class HybridRagEngine:
 
                         contexto_str += f"\n--- INÍCIO DA NOTA: {nome_real} ---\n{texto_limpo}\n--- FIM DA NOTA ---\n"
 
-                        self.notas_contexto_hibrido.append({
+                        self.fontes_utilizadas.append({
                             "nome": nome_real,
                             "caminho": caminho_real
                         })

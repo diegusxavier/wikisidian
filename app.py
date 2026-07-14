@@ -1,9 +1,11 @@
+import time
 import streamlit as st
 import os
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
 import uuid
+import shutil # Necessário para segurança ao apagar
 
 # Importações originais do seu projeto
 from src.config import carregar_configuracoes, salvar_configuracoes
@@ -19,6 +21,8 @@ from src.core.pdf_rag_cli import HybridRagEngine
 from src.utils.chunker import chunk_and_embed_book
 from src.utils.pdf_handler import process_pdf_to_json
 from src.utils.chunker import chunk_markdown_file
+from src.utils.summarizer import gerar_e_salvar_resumo
+
 
 st.set_page_config(page_title="Wikisidian", page_icon="🧠", layout="wide")
 
@@ -165,36 +169,53 @@ with st.sidebar:
             st.info("Selecione um cofre primeiro.")
 
 
-    # --- BLOCO 4: SELEÇÃO DE LIVROS (NOVO) ---
+    # --- BLOCO 4: SELEÇÃO DE LIVROS E EXCLUSÃO ---
     if "livros_selecionados" not in st.session_state:
         st.session_state.livros_selecionados = []
 
-    with st.expander("📚 Filtro de Livros", expanded=False):
-        st.write("Marque os livros que a IA deve consultar:")
+    with st.expander("📚 Filtro e Gestão de Livros", expanded=False):
+        st.write("Marque os livros para consultar ou apague-os do sistema:")
         pasta_json = Path("books_data/extracted_texts")
-        
-        # Cria a pasta caso não exista
         pasta_json.mkdir(parents=True, exist_ok=True)
         
-        # Pega todos os arquivos JSON (Livros já processados)
         livros_processados = [f.stem for f in pasta_json.glob("*.json")]
         
         if not livros_processados:
             st.info("Nenhum livro processado ainda.")
         else:
             selecionados_temp = []
-            with st.container(height=200):
+            with st.container(height=250):
                 for livro in livros_processados:
-                    # Por padrão, deixamos todos marcados. 
-                    if st.checkbox(livro, value=True, key=f"chk_livro_{livro}"):
-                        selecionados_temp.append(livro)
+                    col_chk, col_del = st.columns([8, 2])
+                    
+                    with col_chk:
+                        if st.checkbox(livro, value=True, key=f"chk_{livro}"):
+                            selecionados_temp.append(livro)
+                            
+                    with col_del:
+                        if st.button("🗑️", key=f"del_{livro}", help="Apagar PDF, JSON, Resumo e Vetores"):
+                            # 1. Apagar do ChromaDB
+                            db_livros = VectorStore(collection_name="pdf_books")
+                            db_livros.collection.delete(where={"titulo": livro})
+                            
+                            # 2. Apagar Arquivos Físicos
+                            paths_to_delete = [
+                                Path(f"books_data/raw_pdfs/{livro}.pdf"),
+                                Path(f"books_data/extracted_texts/{livro}.json"),
+                                Path(f"books_data/summaries/RESUMO_{livro}.txt")
+                            ]
+                            for p in paths_to_delete:
+                                if p.exists():
+                                    p.unlink() # Exclui o arquivo físico
+                            
+                            st.success(f"'{livro}' excluído com sucesso!")
+                            st.rerun()
             
             st.session_state.livros_selecionados = selecionados_temp
             if not selecionados_temp:
                 st.warning("⚠️ Nenhum livro marcado. A IA não terá base para responder.")
 
-
-    # --- BLOCO 5: IMPORTAÇÃO E PROCESSAMENTO DE PDFs (NOVO) ---
+    # --- BLOCO 5: IMPORTAÇÃO E PROCESSAMENTO DE PDFs ---
     with st.expander("📥 Importar Novos PDFs", expanded=False):
         arquivos_pdf = st.file_uploader("Arraste seus PDFs aqui", type=["pdf"], accept_multiple_files=True)
         
@@ -216,13 +237,16 @@ with st.sidebar:
                 try:
                     # 2. Roda o Extrator (Transforma PDF em JSON)
                     texto_progresso.text(f"Extraindo texto: {arquivo.name}")
-                    # AQUI VOCÊ CHAMA A SUA FUNÇÃO DO pdf_handler.py
-                    process_pdf_to_json(caminho_salvar)
+                    caminho_json = process_pdf_to_json(caminho_salvar)
                     
-                    # 3. Roda o Chunker (Transforma JSON em Vetor no Chroma)
-                    nome_json = arquivo.name.replace(".pdf", ".json")
-                    texto_progresso.text(f"Vetorizando: {nome_json}")
-                    chunk_and_embed_book(nome_json)
+                    # 3. GERA O RESUMO COM IA (ANTES DE VETORIZAR)
+                    nome_livro_limpo = arquivo.name.replace(".pdf", "")
+                    texto_progresso.text(f"Gerando resumo global com IA: {nome_livro_limpo}")
+                    gerar_e_salvar_resumo(nome_livro_limpo, caminho_json)
+                    
+                    # 4. Roda o Chunker (Transforma JSON e o Resumo TXT em Vetor)
+                    texto_progresso.text(f"Vetorizando: {nome_livro_limpo}")
+                    chunk_and_embed_book(caminho_json.name)
                     
                 except Exception as e:
                     st.error(f"Erro no livro {arquivo.name}: {e}")
@@ -232,6 +256,10 @@ with st.sidebar:
                 
             texto_progresso.success("Todos os PDFs foram processados!")
             st.balloons()
+
+            # Atualiza a interface instantaneamente!
+            time.sleep(1.5) # Pausa rápida para a animação aparecer
+            st.rerun()
 # ==========================================
 # 3. ÁREA PRINCIPAL E INICIALIZAÇÃO
 # ==========================================
