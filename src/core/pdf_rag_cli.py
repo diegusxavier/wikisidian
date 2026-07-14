@@ -102,7 +102,7 @@ class HybridRagEngine:
                 
                 # Formatação condicional baseada no tipo_dado
                 if tipo_dado == "resumo":
-                    nome_fonte = f"📘 Resumo Global ({titulo})"
+                    nome_fonte = f"📘 Resumo ({titulo})"
                     contexto_str += f"[RESUMO GERAL DO LIVRO: {titulo}]\n{doc}\n\n"
                 else:
                     pagina = meta.get('pagina', '?')
@@ -190,19 +190,24 @@ class HybridRagEngine:
             temperatura = 0.2
             prompt_sistema = """Você é um assistente de pesquisa acadêmica rigoroso.
             REGRAS OBRIGATÓRIAS:
-            1. Responda APENAS com base nos TRECHOS FORNECIDOS no contexto (Livros ou Notas).
-            2. Ao usar livros, adicione a citação no formato: (Nome do Livro, p. X).
-            3. Ao usar notas, adicione a citação no formato: (Nota: Nome da Nota).
-            4. Se a informação não estiver presente nos trechos, diga: "Os textos fornecidos não abordam este assunto".
-            5. Não invente informações."""
+            1. Responda APENAS com base nos TRECHOS FORNECIDOS no contexto.
+            2. REGRAS DE CITAÇÃO (OBRIGATÓRIO):
+                - Se o trecho indicar [LIVRO: ... | PÁGINA: X], use o formato: (Nome do Livro, p. X).
+                - Se o trecho indicar [RESUMO GERAL DO LIVRO: ...], use o formato: (Nome do Livro - Resumo Global).
+                - Se o trecho vier do Obsidian, use o formato: (Nota: Nome da Nota).
+            3. Se a informação não estiver presente, diga: "Os textos fornecidos não abordam este assunto".
+            4. Não invente informações nem chute números de páginas."""
         else:
             temperatura = 0.6 
             prompt_sistema = """Você é um assistente de pesquisa avançado.
             REGRAS OBRIGATÓRIAS:
-            1. Priorize responder com base nos TRECHOS FORNECIDOS (Livros e Notas).
-            2. CITE SUAS FONTES: Tudo extraído do contexto deve ser citado como (Nome do Livro, p. X) ou (Nota: Nome da Nota).
-            3. CONHECIMENTO GERAL: Se a resposta não estiver nos trechos, você PODE usar seu conhecimento geral para ajudar o usuário, mas DEVE avisar explicitamente (ex: "Embora meus arquivos locais não mencionem isso...").
-            4. Não invente citações, páginas ou referências bibliográficas falsas."""
+            1. Priorize responder com base nos TRECHOS FORNECIDOS.
+            2. REGRAS DE CITAÇÃO (OBRIGATÓRIO):
+                - Se o trecho indicar [LIVRO: ... | PÁGINA: X], use: (Nome do Livro, p. X).
+                - Se o trecho indicar [RESUMO GERAL DO LIVRO: ...], use: (Nome do Livro - Resumo Global).
+                - Se for do Obsidian, use: (Nota: Nome da Nota).
+            3. CONHECIMENTO GERAL: Se a resposta não estiver nos trechos, você PODE usar seu conhecimento geral, mas DEVE avisar (ex: "Embora meus arquivos locais não mencionem isso...").
+            4. Não invente citações ou referências falsas."""
 
         prompt_usuario = f"CONTEXTO RECUPERADO:\n{contexto_str}\n\n{historico_str}PERGUNTA: {pergunta_usuario}\n"
 
