@@ -93,22 +93,29 @@ class HybridRagEngine:
         if res_livros and res_livros.get('ids') and res_livros['ids'][0]:
             encontrou_algo = True
             contexto_str += "=== TRECHOS DE LIVROS ===\n"
-            titulos_processados = set() # NOVO: Rastrear quais livros foram usados
+            titulos_processados = set() 
 
             for doc, meta in zip(res_livros['documents'][0], res_livros['metadatas'][0]):
                 titulo = meta.get('titulo', 'Desconhecido')
-                pagina = meta.get('pagina', '?')
-                titulos_processados.add(titulo) # Salva o nome do livro
+                tipo_dado = meta.get('tipo_dado', 'pagina') # Checa se é resumo ou pagina
+                titulos_processados.add(titulo) 
                 
-                contexto_str += f"[LIVRO: {titulo} | PÁGINA: {pagina}]\n{doc}\n\n"
+                # Formatação condicional baseada no tipo_dado
+                if tipo_dado == "resumo":
+                    nome_fonte = f"📘 Resumo Global ({titulo})"
+                    contexto_str += f"[RESUMO GERAL DO LIVRO: {titulo}]\n{doc}\n\n"
+                else:
+                    pagina = meta.get('pagina', '?')
+                    nome_fonte = f"📄 {titulo} (p. {pagina})"
+                    contexto_str += f"[LIVRO: {titulo} | PÁGINA: {pagina}]\n{doc}\n\n"
                 
-                # Salvamos o título, a página e o texto cru do chunk para a UI
+                # Salvamos o nome formatado e o texto cru do chunk para a UI
                 self.fontes_utilizadas.append({
-                    "nome": f"{titulo} (p. {pagina})",
+                    "nome": nome_fonte,
                     "texto": doc
                 })
 
-            # NOVO: Se a busca foi ESPECÍFICA, injeta o Resumo Global como botão extra na UI
+            # Injeta o Resumo Visualmente na Busca Específica
             if intencao == "ESPECIFICO":
                 for titulo in titulos_processados:
                     caminho_resumo = Path(f"books_data/summaries/RESUMO_{titulo}.txt")

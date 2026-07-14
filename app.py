@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import filedialog
 import uuid
 import shutil # Necessário para segurança ao apagar
+from litellm import completion
 
 # Importações originais do seu projeto
 from src.config import carregar_configuracoes, salvar_configuracoes
@@ -70,6 +71,35 @@ def selecionar_pasta_graficamente(caminho_atual):
     root.destroy()
     return pasta_selecionada
 
+def limpar_nome_arquivo_com_ia(nome_sujo: str) -> str:
+    """Usa a IA para extrair apenas Título e Autor do nome do arquivo PDF."""
+    try:
+        modelo_ia = os.getenv("LLM_MODEL", "gemini/gemini-3.1-flash-lite")
+        prompt = f"""
+        Analise o seguinte nome de arquivo bagunçado de um livro em PDF.
+        Seu objetivo é extrair APENAS o título do livro e o nome do autor.
+        Formato obrigatório da resposta: "Título do Livro - Nome do Autor"
+        Não inclua extensões (.pdf), anos, nomes de sites (como lelivros, Anna's Archive), hashes ou qualquer outra informação.
+        Se não conseguir identificar o autor, retorne apenas o título.
+        
+        Nome original: {nome_sujo}
+        """
+        
+        resposta = completion(
+            model=modelo_ia,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1 # Temperatura super baixa para ele não inventar nada
+        )
+        
+        nome_limpo = resposta.choices[0].message.content.strip()
+        # Removemos aspas ou .pdf caso a IA coloque acidentalmente
+        nome_limpo = nome_limpo.replace('"', '').replace('.pdf', '')
+        return nome_limpo
+    except Exception as e:
+        print(f"Erro ao limpar nome com IA: {e}")
+        # Fallback de segurança: corta no primeiro travessão
+        return nome_sujo.replace(".pdf", "").split("—")[0].split("--")[0].strip()
+    
 # ==========================================
 # 2. MENU LATERAL (CONFIGURAÇÕES)
 # ==========================================
@@ -227,25 +257,29 @@ with st.sidebar:
             texto_progresso = st.empty()
             
             for i, arquivo in enumerate(arquivos_pdf):
-                caminho_salvar = pasta_raw / arquivo.name
-                texto_progresso.text(f"Salvando: {arquivo.name}")
+                # O PULO DO GATO: Passamos pela IA antes de salvar!
+                texto_progresso.text(f"Limpando nome do arquivo com IA: {arquivo.name}")
+                nome_limpo = limpar_nome_arquivo_com_ia(arquivo.name)
+                nome_arquivo_pdf = f"{nome_limpo}.pdf"
                 
-                # 1. Salva o PDF no disco local
+                caminho_salvar = pasta_raw / nome_arquivo_pdf
+                texto_progresso.text(f"Salvando: {nome_arquivo_pdf}")
+                
+                # 1. Salva o PDF no disco local (com o nome limpo)
                 with open(caminho_salvar, "wb") as f:
                     f.write(arquivo.getbuffer())
                 
                 try:
                     # 2. Roda o Extrator (Transforma PDF em JSON)
-                    texto_progresso.text(f"Extraindo texto: {arquivo.name}")
+                    texto_progresso.text(f"Extraindo texto: {nome_limpo}")
                     caminho_json = process_pdf_to_json(caminho_salvar)
                     
-                    # 3. GERA O RESUMO COM IA (ANTES DE VETORIZAR)
-                    nome_livro_limpo = arquivo.name.replace(".pdf", "")
-                    texto_progresso.text(f"Gerando resumo global com IA: {nome_livro_limpo}")
-                    gerar_e_salvar_resumo(nome_livro_limpo, caminho_json)
+                    # 3. GERA O RESUMO COM IA
+                    texto_progresso.text(f"Gerando resumo global com IA: {nome_limpo}")
+                    gerar_e_salvar_resumo(nome_limpo, caminho_json)
                     
-                    # 4. Roda o Chunker (Transforma JSON e o Resumo TXT em Vetor)
-                    texto_progresso.text(f"Vetorizando: {nome_livro_limpo}")
+                    # 4. Roda o Chunker 
+                    texto_progresso.text(f"Vetorizando: {nome_limpo}")
                     chunk_and_embed_book(caminho_json.name)
                     
                 except Exception as e:
