@@ -44,23 +44,33 @@ def gerar_e_salvar_resumo(nome_livro: str, caminho_json_extraido: Path) -> str:
     Leia o texto abaixo. Identifique o tipo de documento (artigo, livro técnico ou ficção) e crie um resumo abrangente seguindo a estrutura correspondente:
     
     - PARA ARTIGOS CIENTÍFICOS:
-    1. Objetivo Principal
-    2. Metodologia (se aplicável)
-    3. Principais Resultados / Ideias Centrais
-    4. Conclusão
+    1. Resumo do Artigo
+    2. Objetivo Principal
+    3. Metodologia (se aplicável)
+    4. Principais Resultados / Ideias Centrais
+    5. Conclusão e pontos relevantes
 
     - PARA LIVROS TÉCNICOS/ACADÊMICOS:
     1. Tema Central do Livro
     2. Principais Capítulos e Ideias
     3. Aplicações Práticas ou Exemplos
-    4. Conclusão e Relevância
+    4. Pontos específicos de interesse para profissionais da área
+    5. Conclusão e Relevância
 
     - PARA FICÇÃO:
     1. Resumo da Trama
     2. Personagens Principais
-    3. Desenvolvimento da história em seus principais pontos e capítulos
-    4. Conclusão, reflexão e Mensagem Final
+    3. Desenvolvimento da história em seus principais pontos
+    4. Resumo das capítulos e eventos-chave
+    5. Conclusão, reflexão e Mensagem Final
     
+    - OBSERVAÇÃO IMPORTANTE PARA TEXTOS DE FICÇÃO COM CONTEÚDO VIOLENTO OU SENSÍVEL:
+    Ignore descrições gráficas de violência e foque exclusivamente em:
+    1. A estrutura dos capítulos e o arco narrativo.
+    2. O desenvolvimento psicológico dos personagens e seus dilemas morais.
+    3. A atmosfera, o estilo de escrita e a temática da obra (ex: horror psicológico, suspense).
+    4. Resumo da trama (sem detalhar cenas violentas específicas).
+
     TEXTO PARA RESUMIR:
     {texto_completo[:100000]}
     """
@@ -75,8 +85,15 @@ def gerar_e_salvar_resumo(nome_livro: str, caminho_json_extraido: Path) -> str:
         stream=False     
     )
 
+    # Captura a resposta da IA
     resumo_gerado = resposta.choices[0].message.content
 
+    # --- O TRATAMENTO DE ERRO (PULO DO GATO) ---
+    if resumo_gerado is None:
+        print(f"Aviso: A IA recusou-se a resumir '{nome_livro}' (Possível bloqueio de segurança).")
+        resumo_gerado = "RESUMO INDISPONÍVEL.\n\nA Inteligência Artificial não pôde gerar o resumo para este documento. Isso geralmente ocorre quando a API bloqueia a resposta devido a filtros de segurança internos (ex: o livro contém linguagem de violência, terror, ou temas explícitos que violam as políticas do modelo de IA)."
+
+    # Grava o resultado (agora com segurança de que sempre será uma string)
     with open(caminho_resumo, "w", encoding="utf-8") as f:
         f.write(resumo_gerado)
 

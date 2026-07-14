@@ -258,7 +258,7 @@ with st.sidebar:
             st.balloons()
 
             # Atualiza a interface instantaneamente!
-            time.sleep(1.5) # Pausa rápida para a animação aparecer
+            time.sleep(0.5) # Pausa rápida para a animação aparecer
             st.rerun()
 # ==========================================
 # 3. ÁREA PRINCIPAL E INICIALIZAÇÃO
