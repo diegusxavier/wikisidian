@@ -3,15 +3,15 @@ from chromadb.utils import embedding_functions
 from pathlib import Path
 
 class VectorStore:
-    # ALTERAÇÃO 1: Adicionamos 'collection_name' aqui, mantendo 'obsidian_notes' como padrão
+    # Classe que gerencia o banco de dados vetorial. Ela é responsável por criar a coleção, adicionar notas e buscar notas similares.
     def __init__(self, db_path: str = "vector_store", collection_name: str = "obsidian_notes"):
         self.client = chromadb.PersistentClient(path=db_path)
         
+        # Embedding function é a função que transforma texto em vetores. Aqui estamos usando o modelo MiniLM, que é rápido e suporta múltiplos idiomas.
         self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name="paraphrase-multilingual-MiniLM-L12-v2"
         )
         
-        # ALTERAÇÃO 2: Agora o nome da coleção é dinâmico. 
         # Assim você pode criar VectorStore(collection_name="pdf_books")
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
@@ -19,7 +19,7 @@ class VectorStore:
             metadata={"hnsw:space": "cosine"}
         )
 
-    # MANTER INTACTO: Este é o seu método antigo, que serve para as notas do Obsidian
+    # Método para adicionar notas ao banco vetorial. Ele recebe uma lista de arquivos e seus conteúdos correspondentes.
     def add_notes(self, files: list[Path], contents: list[str]):
         # Quando passamos o 'contents' (que é uma lista de strings gigantes
         # com os textos das suas notas), o ChromaDB pega aquele modelo MiniLM
@@ -34,8 +34,7 @@ class VectorStore:
         )
         print(f"{len(files)} notas processadas e salvas no banco vetorial!")
 
-    # ALTERAÇÃO 3: Criamos um método novo, focado em receber os dados crus do livro.
-    # Ele exige que você passe a lista de metadados para garantir a citação acadêmica.
+    # Método para adicionar pedaços genéricos de texto ao banco.
     def add_chunks(self, ids: list[str], contents: list[str], metadatas: list[dict]):
         """
         Adiciona pedaços genéricos de texto (como páginas de um PDF) ao banco.
@@ -48,8 +47,7 @@ class VectorStore:
         )
         print(f"{len(contents)} blocos de texto salvos com sucesso!")
 
-    # ALTERAÇÃO 4: Adicionamos o parâmetro 'where'. Isso é o que permite você 
-    # filtrar a busca para procurar apenas num livro específico, resolvendo seu receio.
+    # Método para buscar notas similares. Ele recebe um texto e retorna as notas mais próximas no espaço vetorial.
     def find_similar(self, text: str, top_k: int = 3, where_filter: dict = None):
         """
         Busca notas similares. Se 'where_filter' for passado, 
@@ -67,14 +65,54 @@ class VectorStore:
         results = self.collection.query(**query_args)
         return results
     
-    # MANTER INTACTO: Sua lógica original para o Obsidian
-    def sync_db(self, current_files: list[Path]):
-        existing_ids = self.collection.get()['ids']
-        current_names = [f.name for f in current_files]
-        to_delete = [id for id in existing_ids if id not in current_names]
-        
-        if to_delete:
-            print(f"Limpando {len(to_delete)} notas deletadas do banco vetorial...")
-            self.collection.delete(ids=to_delete)
-        else:
-            print("Banco vetorial sincronizado com o cofre.")
+    # Método para sincronizar o banco de dados vetorial com os arquivos atuais. Ele remove do banco as notas que foram deletadas do cofre.
+    def sync_db(self, current_files: list[Path]) -> list[Path]:
+        """
+        Sincronização Incremental: Identifica arquivos novos, modificados e deletados.
+        Retorna apenas a lista de arquivos que precisam ser processados (novos ou modificados).
+        """
+        # 1. Coleta tudo que está no banco de dados hoje
+        db_data = self.collection.get(include=["metadatas"])
+        db_metadatas = db_data.get("metadatas", [])
+        db_ids = db_data.get("ids", [])
+
+        # Cria um "dicionário da memória": { "C:/caminho/nota.md": 17150000.0 }
+        memoria_db = {}
+        for meta in db_metadatas:
+            if meta and "path" in meta and "mtime" in meta:
+                caminho = meta["path"]
+                if caminho not in memoria_db:
+                    memoria_db[caminho] = meta["mtime"]
+
+        caminhos_hd = {str(f): f for f in current_files}
+        arquivos_para_processar = []
+        ids_para_deletar = []
+
+        # 2. Varredura 1: Verifica o que foi Deletado ou Modificado
+        for caminho_db, mtime_db in memoria_db.items():
+            if caminho_db not in caminhos_hd:
+                # O arquivo sumiu do HD. Deleta todos os chunks dele do banco.
+                print(f"Deletando arquivo removido do Obsidian: {Path(caminho_db).name}")
+                ids_para_deletar.extend([db_ids[i] for i, m in enumerate(db_metadatas) if m and m.get("path") == caminho_db])
+            else:
+                # O arquivo existe. Vamos ver se a data do HD é mais nova que a data do Banco.
+                arquivo_hd = caminhos_hd[caminho_db]
+                mtime_hd = arquivo_hd.stat().st_mtime
+                if mtime_hd > mtime_db:
+                    print(f"Arquivo modificado detectado: {arquivo_hd.name}")
+                    # Apaga os pedaços velhos para não duplicar informações
+                    ids_para_deletar.extend([db_ids[i] for i, m in enumerate(db_metadatas) if m and m.get("path") == caminho_db])
+                    # Manda processar a versão nova
+                    arquivos_para_processar.append(arquivo_hd)
+
+        if ids_para_deletar:
+            self.collection.delete(ids=ids_para_deletar)
+
+        # 3. Varredura 2: Verifica o que é totalmente Novo
+        for caminho_hd, arquivo in caminhos_hd.items():
+            if caminho_hd not in memoria_db and arquivo not in arquivos_para_processar:
+                print(f"Novo arquivo detectado: {arquivo.name}")
+                arquivos_para_processar.append(arquivo)
+
+        print(f"Sincronização concluída: {len(arquivos_para_processar)} arquivos precisam ser vetorizados.")
+        return arquivos_para_processar

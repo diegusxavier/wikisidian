@@ -9,20 +9,21 @@ from src.core.embedder import VectorStore
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 EXTRACTED_TEXTS_DIR = BASE_DIR / "books_data" / "extracted_texts"
 
+# Função para fatiar e vetorização de livros PDF
 def chunk_and_embed_book(json_filename: str):
     json_path = EXTRACTED_TEXTS_DIR / json_filename
     if not json_path.exists():
         raise FileNotFoundError(f"Arquivo não encontrado: {json_path}")
 
-    # 1. Carrega os dados do JSON gerado pelo seu pdf_handler.py
+    # Carrega os dados do JSON gerado pelo seu pdf_handler.py
     with open(json_path, "r", encoding="utf-8") as f:
         livro_dados = json.load(f)
 
+    # Extrai o título e as páginas do livro 
     titulo = livro_dados.get("titulo", "Livro_Desconhecido")
     paginas = livro_dados.get("paginas", [])
 
-    # 2. Configura o fatiador 
-    # Aumentei um pouco o overlap para compensar o fato de cortarmos estritamente por página
+    # Configura o fatiador 
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1200,
         chunk_overlap=300,
@@ -35,6 +36,7 @@ def chunk_and_embed_book(json_filename: str):
 
     print(f"Fatiando o livro '{titulo}' com rigor acadêmico de página...")
 
+    # Itera sobre cada página do livro
     for pagina in paginas:
         texto_atual = pagina["texto"]
         numero_pagina = pagina["numero_pagina"]
@@ -53,7 +55,7 @@ def chunk_and_embed_book(json_filename: str):
             # ID único que você pode usar para deletar ou atualizar depois
             ids.append(f"{titulo}_p{numero_pagina}_chunk{j}")
 
-    # 3. Envio para o ChromaDB
+    # Envio para o ChromaDB
     print(f"Vetorizando {len(chunks)} chunks da página exata... Isso pode demorar um pouco.")
     
     db_livros = VectorStore(collection_name="pdf_books")
@@ -61,7 +63,8 @@ def chunk_and_embed_book(json_filename: str):
     
     print("Livro vetorizado e salvo no banco de dados com sucesso!")
 
-def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str):
+# Função para fatiar arquivos Markdown do Obsidian
+def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str, mtime: float, tamanho_chunk: int = 1500, overlap: int = 300):    
     """
     Fatia um arquivo Markdown por limite de caracteres (com overlap),
     garantindo blocos de tamanho uniforme. Injeta o título do documento
@@ -105,6 +108,59 @@ def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str):
         ids.append(f"{nome_arquivo}_chunk_{i}")
 
     return ids, chunks, metadados
+    Fatia um arquivo Markdown com base na quantidade de caracteres e sobreposição (overlap),
+    ignorando a estrutura de cabeçalhos para evitar chunks muito pequenos.
+    """
+    chunks_nota = []
+    ids_nota = []
+    metadados_nota = []
+    
+    tamanho_texto = len(texto)
+    inicio = 0
+    contador_chunk = 0
+    
+    # Se a nota for muito pequena, salva ela inteira de uma vez
+    if tamanho_texto <= tamanho_chunk:
+        chunks_nota.append(texto)
+        ids_nota.append(f"{nome_arquivo}_unico")
+        metadados_nota.append({
+            "nome": nome_arquivo,
+            "path": caminho_completo,
+            "tipo_dado": "nota", # Mantendo a nossa padronização de Tipagem Forte!
+            "mtime": mtime
+        })
+        return ids_nota, chunks_nota, metadados_nota
+
+    # Lógica de Janela Deslizante (Sliding Window) para notas grandes
+    while inicio < tamanho_texto:
+        # Pega o bloco de texto do tamanho limite
+        fim = inicio + tamanho_chunk
+        pedaco = texto[inicio:fim]
+        
+        # Opcional (porém recomendado): Não cortar a palavra no meio.
+        # Se não chegamos no fim do texto, recuamos até encontrar um espaço ou quebra de linha
+        if fim < tamanho_texto:
+            ultimo_espaco = max(pedaco.rfind(' '), pedaco.rfind('\n'))
+            if ultimo_espaco != -1:
+                fim = inicio + ultimo_espaco
+                pedaco = texto[inicio:fim]
+        
+        # Só adiciona se o pedaço tiver conteúdo real
+        if pedaco.strip():
+            chunks_nota.append(pedaco.strip())
+            ids_nota.append(f"{nome_arquivo}_chunk_{contador_chunk}")
+            metadados_nota.append({
+                "nome": nome_arquivo,
+                "path": caminho_completo,
+                "tipo_dado": "nota", 
+                "mtime": mtime
+            })
+            contador_chunk += 1
+            
+        # O próximo chunk começa recuando o valor do overlap para não perder contexto
+        inicio = fim - overlap
+        
+    return ids_nota, chunks_nota, metadados_nota
 
 
 def embed_resumo_global(nome_livro: str, texto_resumo: str):
