@@ -2,8 +2,6 @@ import time
 import streamlit as st
 import os
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
 import uuid
 import shutil # Necessário para segurança ao apagar
 from litellm import completion
@@ -64,12 +62,45 @@ VAULT_PATH_DINAMICO = Path(caminho_json) if caminho_json else None
 # 1. FUNÇÕES AUXILIARES DA UI
 # ==========================================
 def selecionar_pasta_graficamente(caminho_atual):
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes('-topmost', True)
-    pasta_selecionada = filedialog.askdirectory(initialdir=caminho_atual, title="Selecione a pasta raiz do seu cofre Obsidian")
-    root.destroy()
-    return pasta_selecionada
+    """
+    Abre o diálogo nativo de seleção de pasta (tkinter).
+    Requer display gráfico (X11/Wayland) — retorna None quando indisponível
+    (servidor headless, WSL sem X server, etc.) em vez de crashar o app.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError:
+        print("Aviso: tkinter não instalado no sistema. Seletor gráfico indisponível.")
+        return None
+
+    # Sem variável DISPLAY, o tkinter não tem onde abrir a janela
+    if not os.environ.get("DISPLAY"):
+        print("Aviso: Sem DISPLAY detectado. Seletor gráfico indisponível.")
+        return None
+
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        pasta_selecionada = filedialog.askdirectory(
+            initialdir=caminho_atual,
+            title="Selecione a pasta raiz do seu cofre Obsidian"
+        )
+        root.destroy()
+        return pasta_selecionada
+    except Exception as e:
+        print(f"Erro ao abrir seletor gráfico: {e}")
+        return None
+
+
+def tkinter_disponivel() -> bool:
+    """Verifica se o tkinter está instalado no Python atual (pip não instala tkinter)."""
+    try:
+        import tkinter  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 def limpar_nome_arquivo_com_ia(nome_sujo: str) -> str:
     """Usa a IA para extrair apenas Título e Autor do nome do arquivo PDF."""
@@ -110,17 +141,46 @@ with st.sidebar:
     st.write("**Caminho do Cofre Obsidian:**")
     caminho_exibicao = str(VAULT_PATH_DINAMICO) if VAULT_PATH_DINAMICO else "Nenhum cofre selecionado"
     st.info(caminho_exibicao)
-    
-    if st.button("📁 Selecionar Pasta pelo Explorador"):
-        caminho_inicial = str(VAULT_PATH_DINAMICO) if VAULT_PATH_DINAMICO else "/"
-        pasta_escolhida = selecionar_pasta_graficamente(caminho_inicial)
-        
-        if pasta_escolhida:
-            CONFIG_ATUAL["vault_path"] = pasta_escolhida
-            salvar_configuracoes(CONFIG_ATUAL)
-            st.success("Caminho atualizado com sucesso!")
-            st.cache_resource.clear()  
-            st.rerun()  
+
+    # Caminho principal: campo de texto (funciona em qualquer ambiente, sem GUI nativa)
+    novo_caminho = st.text_input(
+        "Colar caminho do cofre:",
+        value=caminho_exibicao if caminho_exibicao != "Nenhum cofre selecionado" else "",
+        placeholder="/caminho/para/seu/cofre",
+        key="txt_vault_path"
+    )
+
+    col_confirmar, col_grafico = st.columns(2)
+
+    with col_confirmar:
+        if st.button("✅ Confirmar Caminho", use_container_width=True):
+            caminho_digitado = novo_caminho.strip()
+            if caminho_digitado and Path(caminho_digitado).exists():
+                CONFIG_ATUAL["vault_path"] = caminho_digitado
+                salvar_configuracoes(CONFIG_ATUAL)
+                st.success("Caminho atualizado com sucesso!")
+                st.cache_resource.clear()
+                st.rerun()
+            else:
+                st.error("Caminho inválido ou pasta inexistente.")
+
+    # Botão gráfico (tkinter): apenas se houver display gráfico E tkinter instalado
+    if os.environ.get("DISPLAY") and tkinter_disponivel():
+        with col_grafico:
+            if st.button("📁 Selecionar pelo Explorador", use_container_width=True):
+                caminho_inicial = str(VAULT_PATH_DINAMICO) if VAULT_PATH_DINAMICO else "/"
+                pasta_escolhida = selecionar_pasta_graficamente(caminho_inicial)
+
+                if pasta_escolhida:
+                    CONFIG_ATUAL["vault_path"] = pasta_escolhida
+                    salvar_configuracoes(CONFIG_ATUAL)
+                    st.success("Caminho atualizado com sucesso!")
+                    st.cache_resource.clear()
+                    st.rerun()
+                else:
+                    st.error("Não foi possível abrir o seletor gráfico.")
+    else:
+        st.caption("💡 Cole o caminho no campo acima (nenhuma interface gráfica detectada).")
 
     st.divider()
 
