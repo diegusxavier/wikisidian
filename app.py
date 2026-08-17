@@ -361,12 +361,16 @@ with st.sidebar:
 # ==========================================
 st.title("🧠 Wikisidian - Assistente Pessoal")
 
-if not VAULT_PATH_DINAMICO or not VAULT_PATH_DINAMICO.exists():
-    st.warning("👈 Por favor, selecione a pasta válida do seu cofre do Obsidian no menu lateral para iniciar.")
-    st.stop()
+# OBS: Sem st.stop() global — o app carrega mesmo sem cofre Obsidian.
+# Cada aba trata a ausência do vault de forma independente (livros funcionam sozinhos).
 
 @st.cache_resource
 def iniciar_sistema(caminho_str, pastas_ignoradas_tupla):
+    # Guard clause: sem cofre válido, retorna None (o app segue funcionando p/ livros)
+    if not caminho_str or not Path(caminho_str).exists():
+        print("Aviso: Cofre Obsidian não configurado. Chat de notas e linker desativados.")
+        return None
+
     caminho_cofre = Path(caminho_str)
     arquivos_md = get_all_md_files(caminho_cofre, pastas_ignoradas_tupla)
     
@@ -405,7 +409,8 @@ def iniciar_sistema(caminho_str, pastas_ignoradas_tupla):
     return WikisidianChat(vetor_db, caminho_cofre)
 
 lista_fresca = tuple(CONFIG_ATUAL.get("ignored_folders", []))
-chat_engine_obsidian = iniciar_sistema(str(VAULT_PATH_DINAMICO), lista_fresca)
+caminho_cofre_str = str(VAULT_PATH_DINAMICO) if VAULT_PATH_DINAMICO else ""
+chat_engine_obsidian = iniciar_sistema(caminho_cofre_str, lista_fresca)
 
 
 # ==========================================
@@ -437,7 +442,14 @@ with aba_chat_livros:
         conhecimento_externo_livro = st.toggle("🌐 Conhecimento Externo", value=False, key="tg_ext_livro")
     with col4:
         st.write("")
-        incluir_obsidian = st.toggle("🔗 Cruzar com Obsidian", value=False, key="tg_obs_livro")
+        sem_vault = chat_engine_obsidian is None
+        incluir_obsidian = st.toggle(
+            "🔗 Cruzar com Obsidian",
+            value=False,
+            key="tg_obs_livro",
+            disabled=sem_vault,
+            help="Requer o cofre Obsidian configurado no menu lateral." if sem_vault else "Busca também nas suas notas do Obsidian."
+        )
     with col5:
         # Novo Slider para o Top K
         top_k_livros = st.slider("Trechos (Top-K)", min_value=5, max_value=9, value=5, step=1, key="slider_top_k_livros")
@@ -521,94 +533,98 @@ with aba_chat_livros:
 # ABA 2: CHAT RAG OBSIDIAN (Mantido original)
 # ------------------------------------------
 with aba_chat_obsidian:
-    st.markdown("""
-        <style>
-            div[data-testid="stColumn"]:nth-of-type(2),
-            div[data-testid="column"]:nth-of-type(2) {
-                position: -webkit-sticky !important; 
-                position: sticky !important;
-                top: 70px !important; 
-                align-self: flex-start !important; 
-                z-index: 999 !important; 
-            }
-        </style>
-    """, unsafe_allow_html=True)
+    if chat_engine_obsidian is None:
+        st.warning("👈 Configure o caminho do seu cofre Obsidian no menu lateral para usar o chat de notas.")
+        st.info("💡 Você ainda pode usar a aba '📚 Chat Livros (PDF)' normalmente, sem o cofre.")
+    else:
+        st.markdown("""
+            <style>
+                div[data-testid="stColumn"]:nth-of-type(2),
+                div[data-testid="column"]:nth-of-type(2) {
+                    position: -webkit-sticky !important; 
+                    position: sticky !important;
+                    top: 70px !important; 
+                    align-self: flex-start !important; 
+                    z-index: 999 !important; 
+                }
+            </style>
+        """, unsafe_allow_html=True)
 
-    col_limpar, col_temp, col_hibrido = st.columns([2, 3, 3])
-    
-    with col_limpar:
-        st.write("")
-        if st.button("✨ Nova Conversa", use_container_width=True, key="btn_novo_obs"):
-            st.session_state.mensagens = []
-            st.session_state.nota_visualizada = None
-            st.session_state.caminho_nota = None
-            st.session_state.conv_id = None 
-            st.rerun()
+        col_limpar, col_temp, col_hibrido = st.columns([2, 3, 3])
+        
+        with col_limpar:
+            st.write("")
+            if st.button("✨ Nova Conversa", use_container_width=True, key="btn_novo_obs"):
+                st.session_state.mensagens = []
+                st.session_state.nota_visualizada = None
+                st.session_state.caminho_nota = None
+                st.session_state.conv_id = None 
+                st.rerun()
 
-    with col_temp:
-        st.write("")
-        conversa_temp = st.toggle("👻 Modo Temporário", value=False, help="Não salva no histórico.", key="tg_temp_obs")
-        st.session_state.conversa_temporaria = conversa_temp 
+        with col_temp:
+            st.write("")
+            conversa_temp = st.toggle("👻 Modo Temporário", value=False, help="Não salva no histórico.", key="tg_temp_obs")
+            st.session_state.conversa_temporaria = conversa_temp 
 
-    with col_hibrido:
-        st.write("") 
-        conhecimento_externo_md = st.toggle("🌐 Conhecimento Externo", value=False, key="tg_ext_obs")
-    
+        with col_hibrido:
+            st.write("") 
+            conhecimento_externo_md = st.toggle("🌐 Conhecimento Externo", value=False, key="tg_ext_obs")
+        
 
-    col_chat, col_nota = st.columns([6, 4], gap="large")
+        col_chat, col_nota = st.columns([6, 4], gap="large")
 
-    with col_chat:
-        for i, msg in enumerate(st.session_state.mensagens):
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-                
-                if msg["role"] == "assistant" and "fontes" in msg and msg["fontes"]:
-                    with st.expander("📚 Ver notas originais"):
-                        for fonte in msg["fontes"]:
-                            if st.button(f"📄 {fonte['nome']}", key=f"btn_{i}_{fonte['nome']}"):
-                                st.session_state.nota_visualizada = fonte['nome']
-                                st.session_state.caminho_nota = fonte['caminho']
-                                st.rerun() 
-
-        if pergunta := st.chat_input("Pergunte algo sobre as suas anotações..."):
-            with st.chat_message("user"):
-                st.markdown(pergunta)
-            
-            st.session_state.mensagens.append({"role": "user", "content": pergunta})
-            
-            with st.chat_message("assistant"):
-                resposta_ia = st.write_stream(
-                    chat_engine_obsidian.perguntar(
-                        pergunta, 
-                        modo_estrito=not conhecimento_externo_md,
-                        historico=st.session_state.mensagens[:-1] 
-                    )
-                )
+        with col_chat:
+            for i, msg in enumerate(st.session_state.mensagens):
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
                     
-            st.session_state.mensagens.append({
-                "role": "assistant", 
-                "content": resposta_ia,
-                "fontes": list(chat_engine_obsidian.notas_contexto) 
-            })
-            
-            if not st.session_state.conversa_temporaria:
-                if not st.session_state.conv_id:
-                    st.session_state.conv_id = str(uuid.uuid4())[:8]
-                titulo_conversa = st.session_state.mensagens[0]["content"][:40] + "..."
-                salvar_conversa(st.session_state.conv_id, st.session_state.mensagens, titulo_conversa)
-                
-            st.rerun()
+                    if msg["role"] == "assistant" and "fontes" in msg and msg["fontes"]:
+                        with st.expander("📚 Ver notas originais"):
+                            for fonte in msg["fontes"]:
+                                if st.button(f"📄 {fonte['nome']}", key=f"btn_{i}_{fonte['nome']}"):
+                                    st.session_state.nota_visualizada = fonte['nome']
+                                    st.session_state.caminho_nota = fonte['caminho']
+                                    st.rerun() 
 
-    with col_nota:
-        st.header("📄 Visualizador de Notas")
-        st.divider()
-        if st.session_state.nota_visualizada:
-            st.subheader(st.session_state.nota_visualizada)
-            conteudo_nota = read_file_content(Path(st.session_state.caminho_nota))
-            with st.container(height=550):
-                st.markdown(conteudo_nota)
-        else:
-            st.info("👈 Faça uma pergunta e clique numa das notas utilizadas no chat para ler o seu conteúdo original aqui.")
+            if pergunta := st.chat_input("Pergunte algo sobre as suas anotações..."):
+                with st.chat_message("user"):
+                    st.markdown(pergunta)
+                
+                st.session_state.mensagens.append({"role": "user", "content": pergunta})
+                
+                with st.chat_message("assistant"):
+                    resposta_ia = st.write_stream(
+                        chat_engine_obsidian.perguntar(
+                            pergunta, 
+                            modo_estrito=not conhecimento_externo_md,
+                            historico=st.session_state.mensagens[:-1] 
+                        )
+                    )
+                        
+                st.session_state.mensagens.append({
+                    "role": "assistant", 
+                    "content": resposta_ia,
+                    "fontes": list(chat_engine_obsidian.notas_contexto) 
+                })
+                
+                if not st.session_state.conversa_temporaria:
+                    if not st.session_state.conv_id:
+                        st.session_state.conv_id = str(uuid.uuid4())[:8]
+                    titulo_conversa = st.session_state.mensagens[0]["content"][:40] + "..."
+                    salvar_conversa(st.session_state.conv_id, st.session_state.mensagens, titulo_conversa)
+                    
+                st.rerun()
+
+        with col_nota:
+            st.header("📄 Visualizador de Notas")
+            st.divider()
+            if st.session_state.nota_visualizada:
+                st.subheader(st.session_state.nota_visualizada)
+                conteudo_nota = read_file_content(Path(st.session_state.caminho_nota))
+                with st.container(height=550):
+                    st.markdown(conteudo_nota)
+            else:
+                st.info("👈 Faça uma pergunta e clique numa das notas utilizadas no chat para ler o seu conteúdo original aqui.")
 
 
 
@@ -617,44 +633,47 @@ with aba_chat_obsidian:
 # ABA 3: O LINKER (Gestor de Conexões Original)
 # ------------------------------------------
 with aba_linker:
-    st.header("Gerador Automático de Backlinks")
-    st.write("A IA varre o seu cofre e injeta notas relacionadas no final dos arquivos. Você também pode desfazer este processo a qualquer momento.")
-    
-    top_k_links = st.slider("Quantos links deseja injetar por nota?", min_value=1, max_value=5, value=3)
-    st.write("")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        btn_injetar = st.button("🚀 Iniciar Injeção de Links", use_container_width=True)
-    with col2:
-        btn_remover = st.button("🧹 Desfazer Todos os Links", use_container_width=True)
+    if chat_engine_obsidian is None:
+        st.warning("👈 Configure o caminho do seu cofre Obsidian no menu lateral para usar o Gestor de Conexões.")
+    else:
+        st.header("Gerador Automático de Backlinks")
+        st.write("A IA varre o seu cofre e injeta notas relacionadas no final dos arquivos. Você também pode desfazer este processo a qualquer momento.")
         
-    if btn_injetar:
-        arquivos_para_processar = get_all_md_files(VAULT_PATH_DINAMICO, lista_fresca)
-        total_arquivos = len(arquivos_para_processar)
+        top_k_links = st.slider("Quantos links deseja injetar por nota?", min_value=1, max_value=5, value=3)
+        st.write("")
         
-        if total_arquivos == 0:
-            st.warning("Nenhum ficheiro encontrado para processar.")
-        else:
-            linker = ObsidianLinker(chat_engine_obsidian.vs)
-            notas_atualizadas = 0
-            barra_progresso = st.progress(0)
-            texto_status = st.empty() 
+        col1, col2 = st.columns(2)
+        with col1:
+            btn_injetar = st.button("🚀 Iniciar Injeção de Links", use_container_width=True)
+        with col2:
+            btn_remover = st.button("🧹 Desfazer Todos os Links", use_container_width=True)
             
-            for i, arquivo in enumerate(arquivos_para_processar):
-                texto_status.text(f"Processando ({i+1}/{total_arquivos}): {arquivo.name}")
-                alterou = linker.inject_links(arquivo, top_k=top_k_links)
-                if alterou:
-                    notas_atualizadas += 1
-                barra_progresso.progress((i + 1) / total_arquivos)
+        if btn_injetar:
+            arquivos_para_processar = get_all_md_files(VAULT_PATH_DINAMICO, lista_fresca)
+            total_arquivos = len(arquivos_para_processar)
             
-            texto_status.success(f"Finalizado! {notas_atualizadas} notas receberam novas conexões.")
-            st.balloons()
-
-    if btn_remover:
-        with st.spinner("A varrer o cofre e a remover as assinaturas da IA..."):
-            total_limpo = remove_ia_links(VAULT_PATH_DINAMICO, lista_fresca)
-            if total_limpo > 0:
-                st.success(f"Ufa! {total_limpo} ficheiros foram restaurados ao seu estado original com sucesso.")
+            if total_arquivos == 0:
+                st.warning("Nenhum ficheiro encontrado para processar.")
             else:
-                st.info("Nenhuma nota com links gerados pela IA foi encontrada nas suas pastas.")
+                linker = ObsidianLinker(chat_engine_obsidian.vs)
+                notas_atualizadas = 0
+                barra_progresso = st.progress(0)
+                texto_status = st.empty() 
+                
+                for i, arquivo in enumerate(arquivos_para_processar):
+                    texto_status.text(f"Processando ({i+1}/{total_arquivos}): {arquivo.name}")
+                    alterou = linker.inject_links(arquivo, top_k=top_k_links)
+                    if alterou:
+                        notas_atualizadas += 1
+                    barra_progresso.progress((i + 1) / total_arquivos)
+                
+                texto_status.success(f"Finalizado! {notas_atualizadas} notas receberam novas conexões.")
+                st.balloons()
+
+        if btn_remover:
+            with st.spinner("A varrer o cofre e a remover as assinaturas da IA..."):
+                total_limpo = remove_ia_links(VAULT_PATH_DINAMICO, lista_fresca)
+                if total_limpo > 0:
+                    st.success(f"Ufa! {total_limpo} ficheiros foram restaurados ao seu estado original com sucesso.")
+                else:
+                    st.info("Nenhuma nota com links gerados pela IA foi encontrada nas suas pastas.")
