@@ -8,7 +8,7 @@ import shutil # Necessário para segurança ao apagar
 from litellm import completion
 
 # Importações originais do seu projeto
-from src.config import carregar_configuracoes, salvar_configuracoes
+from src.config import carregar_configuracoes, salvar_configuracoes, BASE_DIR
 from src.utils.file_handler import get_all_md_files, read_file_content
 from src.core.embedder import VectorStore
 from src.core.linker import ObsidianLinker
@@ -228,7 +228,7 @@ with st.sidebar:
 
     with st.expander("📚 Filtro e Gestão de Livros", expanded=False):
         st.write("Marque os livros para consultar ou apague-os do sistema:")
-        pasta_json = Path("books_data/extracted_texts")
+        pasta_json = BASE_DIR / "books_data" / "extracted_texts"  # C10: caminho absoluto
         pasta_json.mkdir(parents=True, exist_ok=True)
         
         livros_processados = [f.stem for f in pasta_json.glob("*.json")]
@@ -253,9 +253,9 @@ with st.sidebar:
                             
                             # 2. Apagar Arquivos Físicos
                             paths_to_delete = [
-                                Path(f"books_data/raw_pdfs/{livro}.pdf"),
-                                Path(f"books_data/extracted_texts/{livro}.json"),
-                                Path(f"books_data/summaries/RESUMO_{livro}.txt")
+                                BASE_DIR / "books_data" / "raw_pdfs" / f"{livro}.pdf",          # C10
+                                BASE_DIR / "books_data" / "extracted_texts" / f"{livro}.json", # C10
+                                BASE_DIR / "books_data" / "summaries" / f"RESUMO_{livro}.txt"  # C10
                             ]
                             for p in paths_to_delete:
                                 if p.exists():
@@ -275,7 +275,7 @@ with st.sidebar:
         arquivos_pdf = st.file_uploader("Arraste seus PDFs aqui", type=["pdf"], accept_multiple_files=True)
         
         if arquivos_pdf and st.button("🚀 Processar e Vetorizar", use_container_width=True):
-            pasta_raw = Path("books_data/raw_pdfs")
+            pasta_raw = BASE_DIR / "books_data" / "raw_pdfs"  # C10: caminho absoluto
             pasta_raw.mkdir(parents=True, exist_ok=True)
             
             progresso = st.progress(0)

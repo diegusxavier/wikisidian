@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from litellm import completion
 from typing import Generator
 from src.core.embedder import VectorStore
-from src.config import MARCADOR_IA
+from src.config import MARCADOR_IA, BASE_DIR
 from pathlib import Path
 
 # Carrega as variaveis do arquivo .env
@@ -120,7 +120,7 @@ class HybridRagEngine:
             # Injeta o Resumo Visualmente na Busca Específica
             if intencao == "ESPECIFICO":
                 for titulo in titulos_processados:
-                    caminho_resumo = Path(f"books_data/summaries/RESUMO_{titulo}.txt")
+                    caminho_resumo = BASE_DIR / "books_data" / "summaries" / f"RESUMO_{titulo}.txt"  # C10: caminho absoluto
                     if caminho_resumo.exists():
                         with open(caminho_resumo, "r", encoding="utf-8") as f:
                             texto_resumo = f.read()

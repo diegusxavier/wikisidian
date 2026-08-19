@@ -1,10 +1,14 @@
 import chromadb
 from chromadb.utils import embedding_functions
 from pathlib import Path
+from src.config import BASE_DIR
 
 class VectorStore:
     # Classe que gerencia o banco de dados vetorial. Ela é responsável por criar a coleção, adicionar notas e buscar notas similares.
-    def __init__(self, db_path: str = "vector_store", collection_name: str = "obsidian_notes"):
+    def __init__(self, db_path: str = None, collection_name: str = "obsidian_notes"):
+        # C10: caminho absoluto — funciona mesmo se o app for iniciado de outro diretório
+        if db_path is None:
+            db_path = str(BASE_DIR / "vector_store")
         self.client = chromadb.PersistentClient(path=db_path)
         
         # Embedding function é a função que transforma texto em vetores. Aqui estamos usando o modelo MiniLM, que é rápido e suporta múltiplos idiomas.

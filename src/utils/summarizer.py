@@ -2,14 +2,14 @@ import json
 import os
 from pathlib import Path
 from litellm import completion 
-from src.config import carregar_configuracoes 
+from src.config import carregar_configuracoes, BASE_DIR
 
 def gerar_e_salvar_resumo(nome_livro: str, caminho_json_extraido: Path) -> str:
     """
     Lê o texto extraído do PDF, pede para a LLM criar um resumo global estruturado,
     e salva esse resumo na pasta books_data/summaries/.
     """
-    pasta_resumos = Path("books_data/summaries")
+    pasta_resumos = BASE_DIR / "books_data" / "summaries"  # C10: caminho absoluto
     pasta_resumos.mkdir(parents=True, exist_ok=True)
     caminho_resumo = pasta_resumos / f"RESUMO_{nome_livro}.txt"
 
