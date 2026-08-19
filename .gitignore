@@ -21,3 +21,5 @@ books_data/
 
 # Configuração do agente
 .opencode/
+
+scripts/clear_collection.py

@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_text_splitters import MarkdownHeaderTextSplitter
@@ -84,11 +85,16 @@ def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str, mt
     # Remove a extensão .md para ficar um título limpo no enriquecimento
     titulo_limpo = nome_arquivo.replace(".md", "")
     
+    # C2: Hash do caminho relativo no ID — evita colisão entre notas homônimas
+    # em pastas diferentes (ex: duas "Nota.md" em pastas distintas sobrescreviam
+    # uma à outra no ChromaDB, causando ping-pong no sync_db).
+    hash_caminho = hashlib.sha1(str(caminho_completo).encode()).hexdigest()[:8]
+    
     # Se a nota for muito pequena, salva ela inteira de uma vez
     if tamanho_texto <= tamanho_chunk:
         chunk_enriquecido = f"[Documento: {titulo_limpo}]\n{texto}"
         chunks_nota.append(chunk_enriquecido)
-        ids_nota.append(f"{nome_arquivo}_unico")
+        ids_nota.append(f"{hash_caminho}_{nome_arquivo}_unico")
         metadados_nota.append({
             "nome": nome_arquivo,
             "path": str(caminho_completo),
@@ -117,7 +123,7 @@ def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str, mt
             chunk_enriquecido = f"[Documento: {titulo_limpo}]\n{pedaco.strip()}"
             chunks_nota.append(chunk_enriquecido)
             
-            ids_nota.append(f"{nome_arquivo}_chunk_{contador_chunk}")
+            ids_nota.append(f"{hash_caminho}_{nome_arquivo}_chunk_{contador_chunk}")
             metadados_nota.append({
                 "nome": nome_arquivo,
                 "path": str(caminho_completo),
