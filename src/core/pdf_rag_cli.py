@@ -1,8 +1,10 @@
 import os
+import re
 from dotenv import load_dotenv
 from litellm import completion
 from typing import Generator
 from src.core.embedder import VectorStore
+from src.config import MARCADOR_IA
 from pathlib import Path
 
 # Carrega as variaveis do arquivo .env
@@ -157,8 +159,15 @@ class HybridRagEngine:
                         try:
                             with open(caminho_real, 'r', encoding='utf-8') as f:
                                 texto_completo = f.read()
-                                # Tenta remover o frontmatter do Obsidian (YAML)
-                                texto_limpo = texto_completo.split("---")[0].strip() if "---" in texto_completo else texto_completo
+                                # C5: Remove o frontmatter YAML do Obsidian APENAS se
+                                # começar no início do arquivo (regex ancorada em ^).
+                                # O split("---")[0] antigo truncava a nota no primeiro
+                                # "---" encontrado (régua no meio do texto ou frontmatter
+                                # que virava contexto vazio).
+                                texto_limpo = re.sub(r"^---\n[\s\S]*?\n---\n?", "", texto_completo, count=1)
+                                # Corta a área de backlinks gerada pelo linker
+                                # (consistência com o md_rag_cli, que já faz isso).
+                                texto_limpo = texto_limpo.split(MARCADOR_IA)[0].strip()
                         except Exception:
                             texto_limpo = "(Erro ao carregar o conteúdo da nota)"
 
