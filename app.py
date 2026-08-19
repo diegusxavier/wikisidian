@@ -1,6 +1,7 @@
 import time
 import streamlit as st
 import os
+import re
 from pathlib import Path
 import uuid
 import shutil # Necessário para segurança ao apagar
@@ -102,6 +103,15 @@ def tkinter_disponivel() -> bool:
     except ImportError:
         return False
 
+def sanitizar_nome_arquivo(nome: str) -> str:
+    """C8: Remove caracteres inválidos para nomes de arquivo em qualquer SO.
+    Substitui / \\ : * ? \" < > | por '-', colapsa espaços múltiplos e limpa pontas.
+    O nome pode ficar com hífens no lugar dos caracteres inválidos — feio, mas
+    funcional e seguro (nunca quebra o upload)."""
+    nome_sanitizado = re.sub(r'[\\/:*?"<>|]', "-", nome)   # caracteres inválidos → '-'
+    nome_sanitizado = re.sub(r"\s+", " ", nome_sanitizado) # espaços múltiplos → 1
+    return nome_sanitizado.strip(" .-")                    # limpa pontas (espaço, ponto, hífen)
+
 def limpar_nome_arquivo_com_ia(nome_sujo: str) -> str:
     """Usa a IA para extrair apenas Título e Autor do nome do arquivo PDF."""
     try:
@@ -125,11 +135,13 @@ def limpar_nome_arquivo_com_ia(nome_sujo: str) -> str:
         nome_limpo = resposta.choices[0].message.content.strip()
         # Removemos aspas ou .pdf caso a IA coloque acidentalmente
         nome_limpo = nome_limpo.replace('"', '').replace('.pdf', '')
-        return nome_limpo
+        return sanitizar_nome_arquivo(nome_limpo)  # C8: garante nome válido
     except Exception as e:
         print(f"Erro ao limpar nome com IA: {e}")
         # Fallback de segurança: corta no primeiro travessão
-        return nome_sujo.replace(".pdf", "").split("—")[0].split("--")[0].strip()
+        return sanitizar_nome_arquivo(  # C8: sanitiza também o fallback
+            nome_sujo.replace(".pdf", "").split("—")[0].split("--")[0].strip()
+        )
     
 # ==========================================
 # 2. MENU LATERAL (CONFIGURAÇÕES)
