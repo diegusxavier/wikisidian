@@ -413,6 +413,21 @@ def iniciar_sistema(caminho_str, pastas_ignoradas_tupla):
     
     return WikisidianChat(vetor_db, caminho_cofre)
 
+def assinatura_do_cofre(caminho_cofre: Path, pastas_ignoradas: tuple) -> tuple:
+    """C7: Assinatura barata do cofre — (nº de arquivos, mtime máximo).
+
+    Detecta criação, edição e exclusão de notas sem varrer conteúdo:
+    - criar/deletar nota → muda o nº de arquivos
+    - editar nota → muda o mtime máximo
+    Custa ~50-100ms por rerun (rglob + stat), muito mais barato que re-syncar tudo.
+    """
+    arquivos = get_all_md_files(caminho_cofre, pastas_ignoradas)
+    if not arquivos:
+        return (0, 0.0)
+    mtime_max = max(f.stat().st_mtime for f in arquivos)
+    return (len(arquivos), mtime_max)
+
+
 @st.cache_resource
 def obter_engine_livros():
     """C6: Singleton do HybridRagEngine — evita abrir 2 PersistentClient
@@ -422,6 +437,19 @@ def obter_engine_livros():
 
 lista_fresca = tuple(CONFIG_ATUAL.get("ignored_folders", []))
 caminho_cofre_str = str(VAULT_PATH_DINAMICO) if VAULT_PATH_DINAMICO else ""
+
+# C7: Invalidação automática do cache quando o cofre muda no disco.
+# Sem isso, notas criadas/editadas no Obsidian durante a sessão não aparecem
+# nas buscas até reiniciar o app (o @st.cache_resource nunca re-executa).
+if VAULT_PATH_DINAMICO and VAULT_PATH_DINAMICO.exists():
+    assinatura_atual = assinatura_do_cofre(VAULT_PATH_DINAMICO, lista_fresca)
+    if "assinatura_cofre" not in st.session_state:
+        st.session_state.assinatura_cofre = assinatura_atual
+    elif st.session_state.assinatura_cofre != assinatura_atual:
+        st.session_state.assinatura_cofre = assinatura_atual
+        iniciar_sistema.clear()
+        print("C7: Cofre mudou no disco — cache invalidado, re-sincronizando...")
+
 chat_engine_obsidian = iniciar_sistema(caminho_cofre_str, lista_fresca)
 
 
