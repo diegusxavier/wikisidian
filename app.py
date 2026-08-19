@@ -250,6 +250,8 @@ with st.sidebar:
                                     p.unlink() # Exclui o arquivo físico
                             
                             st.success(f"'{livro}' excluído com sucesso!")
+                            # C6: invalida o singleton para refletir a exclusão
+                            obter_engine_livros.clear()
                             st.rerun()
             
             st.session_state.livros_selecionados = selecionados_temp
@@ -301,6 +303,9 @@ with st.sidebar:
                 
             texto_progresso.success("Todos os PDFs foram processados!")
             st.balloons()
+
+            # C6: o engine cacheado não vê livros novos — invalida o singleton
+            obter_engine_livros.clear()
 
             # Atualiza a interface instantaneamente!
             time.sleep(0.25) # Pausa rápida para a animação aparecer
@@ -408,6 +413,13 @@ def iniciar_sistema(caminho_str, pastas_ignoradas_tupla):
     
     return WikisidianChat(vetor_db, caminho_cofre)
 
+@st.cache_resource
+def obter_engine_livros():
+    """C6: Singleton do HybridRagEngine — evita abrir 2 PersistentClient
+    do ChromaDB a cada mensagem (mesmo padrão do iniciar_sistema).
+    O cache é invalidado quando o acervo muda (importação/exclusão de livros)."""
+    return HybridRagEngine()
+
 lista_fresca = tuple(CONFIG_ATUAL.get("ignored_folders", []))
 caminho_cofre_str = str(VAULT_PATH_DINAMICO) if VAULT_PATH_DINAMICO else ""
 chat_engine_obsidian = iniciar_sistema(caminho_cofre_str, lista_fresca)
@@ -481,7 +493,7 @@ with aba_chat_livros:
             st.session_state.book_messages.append({"role": "user", "content": prompt_livro})
 
             with st.chat_message("assistant"):
-                engine_livros = HybridRagEngine()
+                engine_livros = obter_engine_livros()  # C6: singleton cacheado (não recria a cada mensagem)
                 historico_para_ia = st.session_state.book_messages[-5:-1] if len(st.session_state.book_messages) > 1 else None
 
                 resposta_completa = st.write_stream(
