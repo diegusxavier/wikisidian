@@ -113,7 +113,7 @@ def chunk_markdown_file(texto: str, nome_arquivo: str, caminho_completo: str, mt
         # Não cortar a palavra no meio
         if fim < tamanho_texto:
             ultimo_espaco = max(pedaco.rfind(' '), pedaco.rfind('\n'))
-            if ultimo_espaco != -1:
+            if ultimo_espaco > 0:
                 fim = inicio + ultimo_espaco
                 pedaco = texto[inicio:fim]
         
